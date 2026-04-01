@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<script src="/plugins/sdk/devops-pilot-sdk.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  ::-webkit-scrollbar { width: 7px; height: 7px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--surface1); border-radius: 99px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--surface2); }
+  body { margin: 0; overflow-y: auto; min-height: 100vh; }
+
+  /* ── Shared ─── */
+  .page { display: none; padding: 20px 28px 40px; }
+  .page.active { display: block; }
+  .page.active.full { padding: 0; display: flex; flex-direction: column; height: 100vh; }
+  .spacer { flex: 1; }
+  .hdr { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
+  .hdr h1 { margin: 0; font-size: 18px; font-weight: 700; }
+  .conn { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .conn.ok { background: var(--green); }
+  .conn.err { background: var(--red); }
+  .conn.pending { background: var(--yellow); }
+  .btn {
+    background: var(--surface1); border: 1px solid var(--overlay0); color: var(--text);
+    padding: 5px 12px; border-radius: var(--radius); cursor: pointer; font: 12px var(--font-ui);
+  }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { background: var(--accent); color: var(--crust); border-color: transparent; }
+  .btn.sm { padding: 4px 10px; font-size: 11px; white-space: nowrap; }
+  .section-title { font-size: 13px; font-weight: 700; color: var(--subtext0); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; }
+  .empty-msg { text-align: center; color: var(--subtext0); padding: 32px; font-size: 13px; }
+  .search-input {
+    background: var(--surface0); border: 1px solid var(--overlay0); color: var(--text);
+    padding: 6px 10px; border-radius: var(--radius); font: 12px var(--font-ui); outline: none;
+  }
+  .search-input:focus { border-color: var(--accent); }
+  .filter-btn {
+    background: var(--surface0); border: 1px solid var(--overlay0); color: var(--subtext0);
+    padding: 5px 10px; border-radius: var(--radius); cursor: pointer; font: 11px var(--font-ui);
+  }
+  .filter-btn:hover { border-color: var(--accent); color: var(--text); }
+  .filter-btn.active { background: var(--accent); color: var(--crust); border-color: transparent; }
+  .badge { font-size: 9px; padding: 1px 5px; border-radius: 3px; font-weight: 600; }
+  .badge.published { background: var(--green); color: var(--crust); }
+  .badge.draft { background: var(--yellow); color: var(--crust); }
+  .badge.archived { background: var(--overlay0); color: var(--subtext0); }
+  .back-bar {
+    display: flex; align-items: center; gap: 8px; padding: 10px 28px;
+    background: var(--mantle); border-bottom: 1px solid var(--surface0);
+  }
+  .back-btn {
+    background: none; border: 1px solid var(--overlay0); color: var(--text); cursor: pointer;
+    font: 12px var(--font-ui); padding: 5px 12px; border-radius: var(--radius);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .back-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ── Stats Row ─── */
+  .stats { display: flex; gap: 12px; margin-bottom: 24px; }
+  .stat { flex: 1; background: var(--surface0); border: 1px solid var(--overlay0); border-radius: var(--radius-lg); padding: 14px 16px; }
+  .stat-val { font-size: 24px; font-weight: 700; line-height: 1; }
+  .stat-val.accent { color: var(--accent); }
+  .stat-val.green { color: var(--green); }
+  .stat-val.yellow { color: var(--yellow); }
+  .stat-label { font-size: 11px; color: var(--subtext0); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+  /* ── AI Action Cards ─── */
+  .actions-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; margin-bottom: 28px; }
+  .action-card {
+    background: var(--surface0); border: 1px solid var(--overlay0); border-radius: var(--radius-lg);
+    padding: 14px 16px; cursor: pointer; transition: all 0.15s;
+  }
+  .action-card:hover { border-color: var(--accent); background: var(--surface1); transform: translateY(-1px); }
+  .action-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+  .action-desc { font-size: 11px; color: var(--subtext0); line-height: 1.4; }
+
+  /* ── List Rows (models + entries) ─── */
+  .list-row {
+    display: flex; align-items: center; gap: 12px; padding: 10px 12px;
+    border-bottom: 1px solid var(--surface0); cursor: pointer; transition: background 0.1s;
+  }
+  .list-row:hover { background: var(--surface0); }
+  .list-row:first-child { border-top: 1px solid var(--surface0); }
+  .list-icon {
+    width: 32px; height: 32px; border-radius: var(--radius);
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    flex: 0 0 32px; overflow: hidden; line-height: 1; letter-spacing: 0.5px;
+    background: var(--surface2); color: var(--subtext0);
+  }
+  .list-icon.k-page { background: rgba(137,180,250,0.15); color: var(--blue); }
+  .list-icon.k-component { background: rgba(203,166,247,0.15); color: var(--mauve); }
+  .list-icon.k-data { background: rgba(148,226,213,0.15); color: var(--teal); }
+  .list-icon.k-section { background: rgba(250,179,135,0.15); color: var(--peach); }
+  .list-name { font-size: 13px; font-weight: 500; min-width: 0; }
+  .list-meta { font-size: 11px; color: var(--subtext0); white-space: nowrap; }
+  .list-stats { display: flex; gap: 10px; font-size: 11px; color: var(--subtext0); margin-left: auto; white-space: nowrap; }
+  .list-stats strong { color: var(--text); }
+
+  /* ── Filters Bar ─── */
+  .filters { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .filter-count { font-size: 11px; color: var(--subtext0); }
+
+  /* ── Content Table ─── */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th {
+    text-align: left; padding: 8px 12px; font-size: 11px; font-weight: 600; color: var(--subtext0);
+    text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--overlay0);
+    cursor: pointer; user-select: none;
+  }
+  th:hover { color: var(--text); }
+  th .sa { font-size: 10px; margin-left: 2px; }
+  td { padding: 8px 12px; border-bottom: 1px solid var(--surface0); }
+  tr:hover td { background: var(--surface0); }
+  td.nc { font-weight: 500; max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  td.tc { font-size: 12px; color: var(--subtext0); white-space: nowrap; }
+  .row-actions { display: flex; gap: 6px; white-space: nowrap; }
+
+  /* ── Model Detail Page ─── */
+  .detail-body { padding: 24px 28px 40px; }
+  .detail-hdr { display: flex; align-items: center; gap: 14px; margin-bottom: 24px; }
+  .detail-hdr h1 { margin: 0; font-size: 20px; font-weight: 600; line-height: 1.3; }
+  .detail-subtitle { font-size: 12px; color: var(--subtext0); margin-top: 2px; }
+  .kind-badge { font-size: 10px; padding: 3px 10px; border-radius: 99px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; }
+  .kind-badge.k-page { background: rgba(137,180,250,0.15); color: var(--blue); }
+  .kind-badge.k-component { background: rgba(203,166,247,0.15); color: var(--mauve); }
+  .kind-badge.k-data { background: rgba(148,226,213,0.15); color: var(--teal); }
+  .kind-badge.k-section { background: rgba(250,179,135,0.15); color: var(--peach); }
+  .detail-actions {
+    display: flex; gap: 8px; margin-bottom: 24px; flex-wrap: wrap;
+    padding: 16px; background: var(--surface0); border: 1px solid var(--overlay0);
+    border-radius: var(--radius-lg);
+  }
+  .detail-actions .section-label {
+    font-size: 10px; font-weight: 600; color: var(--subtext0); text-transform: uppercase;
+    letter-spacing: 0.5px; width: 100%; margin-bottom: 4px;
+  }
+
+  /* ── Schema ─── */
+  .schema-btn {
+    background: var(--surface0); border: 1px solid var(--overlay0); color: var(--text);
+    padding: 8px 14px; border-radius: var(--radius); cursor: pointer; font: 12px var(--font-ui);
+    display: inline-flex; align-items: center; gap: 6px; margin-bottom: 16px;
+  }
+  .schema-btn:hover { border-color: var(--accent); }
+  .schema-btn .arrow { font-size: 10px; transition: transform 0.15s; }
+  .schema-btn.open .arrow { transform: rotate(90deg); }
+  .schema-box {
+    display: none; margin-bottom: 20px; background: var(--surface0);
+    border: 1px solid var(--overlay0); border-radius: var(--radius-lg); padding: 12px 16px;
+  }
+  .schema-box.open { display: block; }
+  .sf { display: flex; align-items: center; gap: 10px; padding: 5px 0; font-size: 12px; border-bottom: 1px solid var(--surface0); }
+  .sf:last-child { border-bottom: none; }
+  .sf-n { font-family: var(--font-mono); color: var(--accent); font-weight: 500; min-width: 140px; }
+  .sf-t { font-size: 10px; padding: 2px 8px; border-radius: 3px; font-weight: 600; background: var(--surface2); color: var(--subtext0); }
+  .sf-r { color: var(--red); font-size: 9px; font-weight: 600; }
+  .sf-h { color: var(--overlay1); font-size: 11px; flex: 1; }
+
+  /* ── Recent Changes ─── */
+  .recent-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--radius); }
+  .recent-item:hover { background: var(--surface0); }
+  .recent-name { flex: 1; min-width: 0; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .recent-model { font-size: 10px; color: var(--teal); font-weight: 500; }
+  .recent-time { font-size: 10px; color: var(--overlay1); white-space: nowrap; }
+
+  /* ── JSON Editor Page ─── */
+  .editor-toolbar {
+    display: flex; align-items: center; gap: 8px; padding: 8px 16px;
+    border-bottom: 1px solid var(--overlay0); background: var(--mantle); flex-shrink: 0;
+  }
+  .editor-toolbar h2 { margin: 0; font-size: 14px; font-weight: 600; }
+  .editor-toolbar .path { font-size: 11px; color: var(--subtext0); font-family: var(--font-mono); }
+  #editorContainer { flex: 1; overflow: hidden; }
+  .editor-status { padding: 6px 16px; font-size: 11px; color: var(--subtext0); border-top: 1px solid var(--overlay0); background: var(--mantle); flex-shrink: 0; display: flex; align-items: center; gap: 8px; }
+  .editor-status .err { color: var(--red); }
+
+  /* ── Setup ─── */
+  .setup { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 60vh; gap: 12px; padding: 40px; }
+  .setup h2 { margin: 0; }
+  .setup p { color: var(--subtext0); max-width: 400px; text-align: center; line-height: 1.5; }
+  .setup input {
+    background: var(--surface0); border: 1px solid var(--overlay0); color: var(--text);
+    padding: 8px 12px; border-radius: var(--radius); font: 13px var(--font-mono); width: 400px; outline: none;
+  }
+  .setup input:focus { border-color: var(--accent); }
+  .setup .lbl { font-size: 12px; font-weight: 600; align-self: flex-start; margin-left: calc(50% - 200px); margin-bottom: -4px; }
+</style>
+</head>
+<body>
+
+<!-- ═══ Not Configured ═══ -->
+<div id="setupScreen" class="setup" style="display:none;">
+  <h2>Builder.io</h2>
+  <p>Builder.io API keys are not configured. Go to Settings > Plugins to add your Builder.io Private and Public API keys.</p>
+  <button class="btn primary" style="padding:8px 24px;" onclick="DevOpsPilot.toast('Open Settings from the sidebar button and go to the Plugins tab to add your API keys.','info')">How to configure</button>
+</div>
+
+<!-- ═══ Dashboard ═══ -->
+<div id="pageDash" class="page">
+  <div class="hdr">
+    <h1>Builder.io</h1>
+    <div class="conn" id="connBadge"></div>
+    <div class="spacer"></div>
+    <button class="btn" onclick="loadDashboard()">Refresh</button>
+  </div>
+  <div class="stats">
+    <div class="stat"><div class="stat-val accent" id="sModels">-</div><div class="stat-label">Models</div></div>
+    <div class="stat"><div class="stat-val green" id="sPub">-</div><div class="stat-label">Published</div></div>
+    <div class="stat"><div class="stat-val yellow" id="sDraft">-</div><div class="stat-label">Drafts</div></div>
+    <div class="stat"><div class="stat-val" id="sTotal">-</div><div class="stat-label">Total Entries</div></div>
+  </div>
+  <div class="section-title">AI Actions</div>
+  <div class="actions-grid" id="actionsGrid"></div>
+  <div class="section-title">Models</div>
+  <div class="filters">
+    <input class="search-input" style="width:240px;" type="text" placeholder="Search models..." id="modelSearch" oninput="renderModels()">
+    <button class="filter-btn" id="mfAll" onclick="setModelFilter('all')">All</button>
+    <button class="filter-btn" id="mfData" onclick="setModelFilter('data')">Data</button>
+    <button class="filter-btn" id="mfPage" onclick="setModelFilter('page')">Page</button>
+    <button class="filter-btn" id="mfComp" onclick="setModelFilter('component')">Component</button>
+    <div class="spacer"></div>
+    <span class="filter-count" id="modelCount"></span>
+  </div>
+  <div id="modelsList"></div>
+  <div class="section-title" style="margin-top:28px;">Recent Changes</div>
+  <div id="recentList"></div>
+</div>
+
+<!-- ═══ Model Detail ═══ -->
+<div id="pageModel" class="page" style="padding:0;">
+  <div class="back-bar">
+    <button class="back-btn" onclick="nav('dash')">&#8592; Dashboard</button>
+    <div class="spacer"></div>
+    <span id="dFields" style="font-size:11px;color:var(--subtext0);"></span>
+  </div>
+  <div class="detail-body">
+    <div class="detail-hdr">
+      <div class="list-icon" id="dIcon" style="width:40px;min-width:40px;max-width:40px;height:40px;min-height:40px;max-height:40px;font-size:12px;"></div>
+      <div>
+        <h1 id="dName"></h1>
+        <div class="detail-subtitle"><span class="kind-badge" id="dKind"></span></div>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:12px;margin-bottom:24px;" id="dStats"></div>
+
+    <div class="detail-actions">
+      <div class="section-label">AI Actions</div>
+      <button class="btn primary" id="btnAsk">Ask AI about this model</button>
+      <button class="btn" id="btnGen">Generate entries</button>
+      <button class="btn" id="btnExport">Export</button>
+      <button class="btn" id="btnEditSchema">Edit Schema JSON</button>
+    </div>
+
+    <button class="schema-btn" id="schBtn" onclick="toggleSchema()">
+      <span class="arrow" id="schArrow">&#9654;</span> View Schema (<span id="schCount">0</span> fields)
+    </button>
+    <div class="schema-box" id="schBox"></div>
+
+    <div class="section-title">Content Entries</div>
+    <div class="filters">
+      <input class="search-input" style="width:240px;" type="text" placeholder="Search entries..." id="entrySearch" oninput="filterEntries()">
+      <button class="filter-btn" id="fAll" onclick="setEntryFilter('all')">All</button>
+      <button class="filter-btn" id="fPub" onclick="setEntryFilter('published')">Published</button>
+      <button class="filter-btn" id="fDraft" onclick="setEntryFilter('draft')">Drafts</button>
+      <div class="spacer"></div>
+      <span class="filter-count" id="entryCount"></span>
+    </div>
+    <table><thead><tr>
+      <th onclick="sortBy('name')">Name <span class="sa" id="saN"></span></th>
+      <th onclick="sortBy('status')" style="width:90px;">Status <span class="sa" id="saS"></span></th>
+      <th onclick="sortBy('updated')" style="width:120px;">Updated <span class="sa" id="saU"></span></th>
+      <th style="width:230px;">Actions</th>
+    </tr></thead><tbody id="entryBody"></tbody></table>
+  </div>
+</div>
+
+<!-- ═══ Action Modal ═══ -->
+<div id="actionModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:100;display:none;align-items:center;justify-content:center;">
+  <div style="background:var(--base);border:1px solid var(--overlay0);border-radius:var(--radius-lg);width:480px;max-width:90vw;box-shadow:0 16px 48px rgba(0,0,0,0.3);">
+    <div style="padding:14px 20px;border-bottom:1px solid var(--overlay0);font-weight:600;font-size:14px;" id="amTitle"></div>
+    <div style="padding:20px;" id="amBody"></div>
+    <div style="padding:12px 20px;border-top:1px solid var(--overlay0);display:flex;justify-content:flex-end;gap:8px;">
+      <button class="btn" onclick="closeActionModal()">Cancel</button>
+      <button class="btn primary" id="amSubmit">Run</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ JSON Editor ═══ -->
+<div id="pageEditor" class="page full">
+  <div class="editor-toolbar">
+    <button class="back-btn" id="editorBack">&#8592; Back</button>
+    <h2 id="editorTitle"></h2>
+    <span class="path" id="editorPath"></span>
+    <div class="spacer"></div>
+    <button class="btn primary" id="editorSave" onclick="saveEditor()">Save</button>
+  </div>
+  <div id="editorContainer"></div>
+  <div class="editor-status">
+    <span id="editorStatus">Ready</span>
+    <div class="spacer"></div>
+    <span>Ctrl+S to save</span>
+  </div>
+</div>
+
+<script>
+var API = '/api/plugins/builderio';
+var models = [], modelContent = {}, allRecent = [];
+var modelFilter = 'all';
+// Detail state
+var curModel = null, curEntries = [], filtered = [], entryFilter = 'all', sField = 'updated', sDir = -1;
+// Editor state
+var monacoEditor = null, monacoReady = false, editorCtx = null;
+
+// ══════════════════════════════════════════════════════════════════════════════
+// AI ACTIONS
+// ══════════════════════════════════════════════════════════════════════════════
+var AI_ACTIONS = [
+  { t:'Generate Content', d:'Create realistic entries for a model using AI',
+    modal: function(){ modelPickerModal('Generate Content', 'Which model do you want to generate content for?', function(mName){
+      DevOpsPilot.askAi('Generate content for Builder.io model "'+mName+'".\nFetch schema:\ncurl -s http://127.0.0.1:3800/api/plugins/builderio/summary/'+mName+'\n\nAsk how many entries to create, then generate realistic production-quality content matching the schema fields. Create each via:\ncurl -s -X POST http://127.0.0.1:3800/api/plugins/builderio/content/'+mName+' -H "Content-Type: application/json" -d \'{"name":"...","data":{...},"published":"draft"}\'');
+    });} },
+  { t:'Find Stale Content', d:'Find content not updated recently -- saves results as a note',
+    modal: function(){ showActionModal('Find Stale Content',
+      '<label style="font-size:12px;font-weight:600;display:block;margin-bottom:6px;">Consider stale after how many days?</label>'
+      +'<input type="number" id="amDays" value="30" min="1" style="width:100%;background:var(--surface0);border:1px solid var(--overlay0);color:var(--text);padding:8px 10px;border-radius:var(--radius);font:13px var(--font-ui);outline:none;">',
+      function(){
+        var days=document.getElementById('amDays').value||30;
+        DevOpsPilot.askAi('Fetch the Builder.io space summary:\ncurl -s http://127.0.0.1:3800/api/plugins/builderio/summary\n\nFind ALL entries across ALL models that have not been updated in the last '+days+' days. Create a well-formatted markdown table sorted by staleness (oldest first) with columns: Model, Entry Name, Status, Last Updated, Days Stale.\n\nSave the result as a note called "Builder.io Stale Content Report" using:\nnode scripts/save-note.js "Builder.io Stale Content Report" --file .ai-workspace/stale-report.md\n\nThen open the note in the dashboard:\ncurl -s -X POST http://127.0.0.1:3800/api/ui/view-note -H "Content-Type: application/json" -d \'{"name":"Builder.io Stale Content Report"}\'');
+      });} },
+  { t:'Bulk Update Field', d:'Change a specific field value across entries in a model',
+    modal: function(){ modelFieldPickerModal(); } },
+  { t:'Export & Backup', d:'Export a model\'s content as a JSON note',
+    modal: function(){ modelPickerModal('Export & Backup', 'Which model do you want to export?', function(mName){
+      DevOpsPilot.askAi('Export all content from Builder.io model "'+mName+'":\ncurl -s -X POST http://127.0.0.1:3800/api/plugins/builderio/content/'+mName+'/export\n\nSave the exported JSON as a note called "'+mName+' Export ['+new Date().toISOString().split('T')[0]+']" using:\nnode scripts/save-note.js "'+mName+' Export" --file .ai-workspace/builder-export.md\n\nThen open the note:\ncurl -s -X POST http://127.0.0.1:3800/api/ui/view-note -H "Content-Type: application/json" -d \'{"name":"'+mName+' Export"}\'');
+    });} },
+];
+
+// ══════════════════════════════════════════════════════════════════════════════
+// NAVIGATION
+// ══════════════════════════════════════════════════════════════════════════════
+function nav(page, data) {
+  document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active');});
+  document.getElementById('page' + page.charAt(0).toUpperCase() + page.slice(1)).classList.add('active');
+  if (page === 'dash') window.scrollTo(0,0);
+  if (page === 'model') { openModel(data); window.scrollTo(0,0); }
+  if (page === 'editor') openEditor(data);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════════════════════════════════════════
+async function init() {
+  var c = await api('GET','/config');
+  if (!c.configured) { showSetup(); return; }
+  renderAI();
+  nav('dash');
+  await loadDashboard();
+}
+function showSetup() {
+  document.getElementById('setupScreen').style.display='flex';
+  document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active');});
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// DASHBOARD
+// ══════════════════════════════════════════════════════════════════════════════
+async function loadDashboard() {
+  var b=document.getElementById('connBadge'); b.className='conn pending';
+  var t=await api('GET','/test');
+  if(t.ok){b.className='conn ok';}else{b.className='conn err';return;}
+  models=await api('GET','/models'); if(models.error)models=[];
+  document.getElementById('sModels').textContent=models.length;
+  modelContent={}; allRecent=[]; var tp=0,td=0;
+  await Promise.all(models.map(function(m){
+    return api('GET','/content/'+m.name+'?limit=100').then(function(e){
+      if(e.error||!Array.isArray(e))e=[];
+      modelContent[m.name]=e;
+      e.forEach(function(x){x._model=m.name;if(x.published==='published')tp++;else td++;allRecent.push(x);});
+    });
+  }));
+  document.getElementById('sPub').textContent=tp;
+  document.getElementById('sDraft').textContent=td;
+  document.getElementById('sTotal').textContent=tp+td;
+  renderModels(); renderRecent();
+}
+function renderAI(){
+  var h='';
+  for(var i=0;i<AI_ACTIONS.length;i++){
+    var a=AI_ACTIONS[i];
+    h+='<div class="action-card" onclick="runAction('+i+')"><div class="action-title">'+esc(a.t)+'</div><div class="action-desc">'+esc(a.d)+'</div></div>';
+  }
+  document.getElementById('actionsGrid').innerHTML=h;
+}
+function runAction(i){
+  var a=AI_ACTIONS[i];
+  if(a.modal) a.modal();
+  else if(a.direct) DevOpsPilot.askAi(a.direct);
+}
+
+// ── Action Modals ────────────────────────────────────────────────────────────
+function showActionModal(title, bodyHtml, onSubmit){
+  document.getElementById('amTitle').textContent=title;
+  document.getElementById('amBody').innerHTML=bodyHtml;
+  document.getElementById('amSubmit').onclick=function(){closeActionModal();onSubmit();};
+  document.getElementById('actionModal').style.display='flex';
+}
+function closeActionModal(){document.getElementById('actionModal').style.display='none';}
+
+var inputStyle='width:100%;background:var(--surface0);border:1px solid var(--overlay0);color:var(--text);padding:8px 10px;border-radius:var(--radius);font:13px var(--font-ui);outline:none;';
+var labelStyle='font-size:12px;font-weight:600;display:block;margin-bottom:6px;';
+
+function modelPickerModal(title, label, onPick){
+  var opts='';
+  for(var i=0;i<models.length;i++){
+    var m=models[i],cnt=(modelContent[m.name]||[]).length;
+    opts+='<option value="'+esc(m.name)+'">'+esc(dn(m.name))+' ('+m.kind+', '+cnt+' entries)</option>';
+  }
+  showActionModal(title,
+    '<label style="'+labelStyle+'">'+esc(label)+'</label>'
+    +'<select id="amModel" style="'+inputStyle+'">'+opts+'</select>',
+    function(){ var v=document.getElementById('amModel').value; if(v) onPick(v); }
+  );
+}
+
+function modelFieldPickerModal(){
+  var opts='';
+  for(var i=0;i<models.length;i++){
+    var m=models[i],cnt=(modelContent[m.name]||[]).length;
+    opts+='<option value="'+esc(m.name)+'">'+esc(dn(m.name))+' ('+cnt+' entries)</option>';
+  }
+  showActionModal('Bulk Update Field',
+    '<label style="'+labelStyle+'">Which model?</label>'
+    +'<select id="amModel" style="'+inputStyle+'" onchange="updateFieldOptions()">'+opts+'</select>'
+    +'<div style="margin-top:14px;" id="fieldPickerArea"></div>',
+    function(){
+      var mName=document.getElementById('amModel').value;
+      var fieldSel=document.getElementById('amField');
+      var field=fieldSel?fieldSel.value:'';
+      if(!mName||!field)return;
+      DevOpsPilot.askAi('I want to bulk update the "'+field+'" field across all entries in Builder.io model "'+mName+'".\nFetch current entries:\ncurl -s http://127.0.0.1:3800/api/plugins/builderio/summary/'+mName+'\n\nShow me a table of all entries with their current "'+field+'" value. Ask what the new value should be. Show a preview of what will change. Do NOT apply without my explicit confirmation.');
+    }
+  );
+  // Trigger initial field load
+  setTimeout(updateFieldOptions, 50);
+}
+
+function updateFieldOptions(){
+  var mName=document.getElementById('amModel').value;
+  var model=models.find(function(m){return m.name===mName;});
+  var area=document.getElementById('fieldPickerArea');
+  if(!model||!model.fields||!model.fields.length){
+    area.innerHTML='<div style="font-size:12px;color:var(--subtext0);">No fields available</div>';
+    return;
+  }
+  var opts='';
+  for(var i=0;i<model.fields.length;i++){
+    var f=model.fields[i];
+    opts+='<option value="'+esc(f.name)+'">'+esc(f.name)+' ('+f.type+')</option>';
+  }
+  area.innerHTML='<label style="'+labelStyle+'">Which field to update?</label>'
+    +'<select id="amField" style="'+inputStyle+'">'+opts+'</select>';
+}
+
+// ── Model List ───────────────────────────────────────────────────────────────
+function setModelFilter(f){
+  modelFilter=f;
+  ['All','Data','Page','Comp'].forEach(function(x){document.getElementById('mf'+x).classList.toggle('active',f===(x==='All'?'all':x==='Comp'?'component':x.toLowerCase()));});
+  renderModels();
+}
+function renderModels(){
+  var q=(document.getElementById('modelSearch').value||'').toLowerCase();
+  var kl={page:'PG',component:'CP',data:'DT',section:'SC'};
+  var vis=models.filter(function(m){
+    if(modelFilter!=='all'&&m.kind!==modelFilter)return false;
+    if(q&&dn(m.name).toLowerCase().indexOf(q)===-1&&m.name.toLowerCase().indexOf(q)===-1)return false;
+    return true;
+  });
+  document.getElementById('modelCount').textContent=vis.length+' of '+models.length;
+  var h='';
+  for(var i=0;i<vis.length;i++){
+    var m=vis[i],e=modelContent[m.name]||[],pub=e.filter(function(x){return x.published==='published';}).length,dr=e.length-pub;
+    h+='<div class="list-row" onclick="nav(\'model\',\''+m.id+'\')">'
+      +'<div class="list-icon k-'+m.kind+'">'+(kl[m.kind]||'??')+'</div>'
+      +'<div class="list-name">'+esc(dn(m.name))+'</div>'
+      +'<div class="list-meta">'+m.kind+' &middot; '+m.fieldCount+' fields</div>'
+      +'<div class="list-stats">'
+        +'<span><strong>'+e.length+'</strong> entries</span>'
+        +'<span><strong style="color:var(--green)">'+pub+'</strong> pub</span>'
+        +(dr?'<span><strong style="color:var(--yellow)">'+dr+'</strong> draft</span>':'')
+      +'</div></div>';
+  }
+  if(!h)h='<div class="empty-msg">No models match</div>';
+  document.getElementById('modelsList').innerHTML=h;
+  setModelFilter.first=true;
+}
+function renderRecent(){
+  allRecent.sort(function(a,b){return(b.lastUpdated||0)-(a.lastUpdated||0);});
+  var items=allRecent.slice(0,12),h='';
+  for(var i=0;i<items.length;i++){
+    var e=items[i],st=e.published||'draft';
+    h+='<div class="recent-item"><span class="recent-name">'+esc(e.name||'(untitled)')+'</span><span class="recent-model">'+esc(dn(e._model))+'</span><span class="badge '+st+'">'+st+'</span><span class="recent-time">'+timeAgo(e.lastUpdated)+'</span></div>';
+  }
+  document.getElementById('recentList').innerHTML=h||'<div class="empty-msg">No entries yet</div>';
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MODEL DETAIL
+// ══════════════════════════════════════════════════════════════════════════════
+function openModel(id){
+  curModel=models.find(function(m){return m.id===id;});
+  if(!curModel)return;
+  curEntries=modelContent[curModel.name]||[];
+  entryFilter='all'; sField='updated'; sDir=-1;
+  var kl={page:'PG',component:'CP',data:'DT',section:'SC'};
+  var ic=document.getElementById('dIcon');ic.className='list-icon k-'+curModel.kind;ic.textContent=kl[curModel.kind]||'??';
+  document.getElementById('dName').textContent=dn(curModel.name);
+  var kb=document.getElementById('dKind');kb.textContent=curModel.kind;kb.className='kind-badge k-'+curModel.kind;
+  document.getElementById('dFields').textContent=curModel.fieldCount+' fields';
+  var n=curModel.name;
+  document.getElementById('btnAsk').onclick=function(){DevOpsPilot.askAi('Fetch Builder.io model summary:\ncurl -s http://127.0.0.1:3800/api/plugins/builderio/summary/'+n+'\n\nGive me a comprehensive overview: schema, content health, recommendations.');};
+  document.getElementById('btnGen').onclick=function(){DevOpsPilot.askAi('Generate content for "'+n+'".\nFetch schema:\ncurl -s http://127.0.0.1:3800/api/plugins/builderio/summary/'+n+'\n\nAsk how many entries, generate realistic content, create via POST.');};
+  document.getElementById('btnExport').onclick=function(){DevOpsPilot.askAi('Export all content from "'+n+'":\ncurl -s -X POST http://127.0.0.1:3800/api/plugins/builderio/content/'+n+'/export\n\nSave as a note.');};
+  document.getElementById('btnEditSchema').onclick=function(){openSchemaEditor();};
+  // Stats
+  var pub=curEntries.filter(function(e){return e.published==='published';}).length,dr=curEntries.length-pub;
+  document.getElementById('dStats').innerHTML=
+    '<div class="stat"><div class="stat-val">'+curEntries.length+'</div><div class="stat-label">Total</div></div>'
+    +'<div class="stat"><div class="stat-val green">'+pub+'</div><div class="stat-label">Published</div></div>'
+    +'<div class="stat"><div class="stat-val yellow">'+dr+'</div><div class="stat-label">Drafts</div></div>';
+  renderSchemaPreview();
+  document.getElementById('schCount').textContent=curModel.fieldCount||0;
+  document.getElementById('schBox').classList.remove('open');
+  document.getElementById('schBtn').classList.remove('open');
+  setEntryFilter('all');
+}
+
+function renderSchemaPreview(){
+  if(!curModel||!curModel.fields)return;
+  var h='';
+  for(var i=0;i<curModel.fields.length;i++){
+    var f=curModel.fields[i];
+    h+='<div class="sf"><span class="sf-n">'+esc(f.name)+'</span><span class="sf-t">'+f.type+(f.subType?'<'+f.subType+'>':'')+'</span>'+(f.required?'<span class="sf-r">REQ</span>':'')+(f.helperText?'<span class="sf-h">'+esc(f.helperText)+'</span>':'')+'</div>';
+    if(f.subFields&&f.subFields.length)for(var j=0;j<f.subFields.length;j++){
+      var sf=f.subFields[j];
+      h+='<div class="sf" style="padding-left:20px;"><span class="sf-n" style="opacity:0.7;">'+esc(sf.name)+'</span><span class="sf-t">'+sf.type+'</span></div>';
+    }
+  }
+  document.getElementById('schBox').innerHTML=h;
+}
+function toggleSchema(){
+  var o=document.getElementById('schBox').classList.toggle('open');
+  document.getElementById('schBtn').classList.toggle('open',o);
+}
+
+// ── Entry List ───────────────────────────────────────────────────────────────
+function setEntryFilter(f){
+  entryFilter=f;
+  document.getElementById('fAll').classList.toggle('active',f==='all');
+  document.getElementById('fPub').classList.toggle('active',f==='published');
+  document.getElementById('fDraft').classList.toggle('active',f==='draft');
+  filterEntries();
+}
+function filterEntries(){
+  var q=(document.getElementById('entrySearch').value||'').toLowerCase();
+  filtered=curEntries.filter(function(e){
+    if(entryFilter==='published'&&e.published!=='published')return false;
+    if(entryFilter==='draft'&&e.published==='published')return false;
+    if(q&&(e.name||'').toLowerCase().indexOf(q)===-1)return false;
+    return true;
+  });
+  applySort();
+}
+function sortBy(f){if(sField===f)sDir*=-1;else{sField=f;sDir=f==='updated'?-1:1;}applySort();}
+function applySort(){
+  filtered.sort(function(a,b){
+    if(sField==='name'){var va=(a.name||'').toLowerCase(),vb=(b.name||'').toLowerCase();return va<vb?-sDir:va>vb?sDir:0;}
+    if(sField==='status'){var sa=a.published||'draft',sb=b.published||'draft';return sa<sb?-sDir:sa>sb?sDir:0;}
+    return((b.lastUpdated||0)-(a.lastUpdated||0))*sDir;
+  });
+  document.getElementById('entryCount').textContent=filtered.length+' of '+curEntries.length;
+  ['N','S','U'].forEach(function(x,i){document.getElementById('sa'+x).textContent=sField===(['name','status','updated'][i])?(sDir===1?'\u25B2':'\u25BC'):'';});
+  var h='';
+  for(var i=0;i<filtered.length;i++){
+    var e=filtered[i],st=e.published||'draft',en=esc((e.name||'').replace(/'/g,''));
+    h+='<tr><td class="nc">'+esc(e.name||'(untitled)')+'</td><td><span class="badge '+st+'">'+st+'</span></td><td class="tc">'+timeAgo(e.lastUpdated)+'</td>'
+      +'<td class="row-actions"><button class="btn sm" onclick="openInBuilder(\''+e.id+'\')" title="Open in Builder.io editor">Open</button><button class="btn sm" onclick="openEntryEditor(\''+e.id+'\')">Edit JSON</button><button class="btn sm" onclick="inspectEntry(\''+e.id+'\',\''+en+'\')">Ask AI</button></td></tr>';
+  }
+  if(!h)h='<tr><td colspan="4" class="empty-msg">No entries match</td></tr>';
+  document.getElementById('entryBody').innerHTML=h;
+}
+function openInBuilder(id){
+  window.open('https://builder.io/content/'+id,'_blank');
+}
+
+function inspectEntry(id,name){
+  DevOpsPilot.askAi('Fetch this Builder.io content entry:\ncurl -s http://127.0.0.1:3800/api/plugins/builderio/content/'+curModel.name+'/'+id+'\n\nShow me "'+name+'" in a readable format. Ask what I want to do -- edit, publish/unpublish, duplicate, or delete.');
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// JSON EDITOR (Monaco)
+// ══════════════════════════════════════════════════════════════════════════════
+function openSchemaEditor(){
+  var m=curModel;
+  editorCtx={type:'schema',modelId:m.id,modelName:m.name,title:'Schema: '+dn(m.name),path:m.name+'/schema'};
+  nav('editor');
+}
+function openEntryEditor(entryId){
+  var e=curEntries.find(function(x){return x.id===entryId;});
+  if(!e)return;
+  editorCtx={type:'entry',modelName:curModel.name,entryId:entryId,entry:e,title:e.name||'(untitled)',path:curModel.name+'/'+entryId};
+  nav('editor');
+}
+async function openEditor(data){
+  document.getElementById('editorTitle').textContent=editorCtx.title;
+  document.getElementById('editorPath').textContent=editorCtx.path;
+  document.getElementById('editorStatus').textContent='Loading...';
+  document.getElementById('editorBack').onclick=function(){nav('model',curModel.id);};
+
+  var content='';
+  if(editorCtx.type==='schema'){
+    // Fetch full model to get latest fields
+    var m=await api('GET','/models/'+editorCtx.modelId);
+    if(m.error){document.getElementById('editorStatus').innerHTML='<span class="err">'+esc(m.error)+'</span>';return;}
+    content=JSON.stringify({name:m.name,kind:m.kind,fields:m.fields||[]},null,2);
+  } else {
+    // Entry: show the full entry data
+    var e=await api('GET','/content/'+editorCtx.modelName+'/'+editorCtx.entryId);
+    if(!e||e.error){document.getElementById('editorStatus').innerHTML='<span class="err">'+(e?esc(e.error):'Not found')+'</span>';return;}
+    editorCtx.entry=e;
+    content=JSON.stringify({name:e.name,published:e.published||'draft',data:e.data||{}},null,2);
+  }
+
+  await ensureMonaco();
+  var container=document.getElementById('editorContainer');
+  if(monacoEditor){monacoEditor.dispose();monacoEditor=null;}
+  monacoEditor=monaco.editor.create(container,{
+    value:content, language:'json', theme:'devops-pilot',
+    fontSize:13, fontFamily:"'Cascadia Code','Cascadia Mono',Consolas,'Courier New',monospace",
+    minimap:{enabled:true}, scrollBeyondLastLine:false, wordWrap:'off',
+    automaticLayout:true, lineNumbers:'on', renderWhitespace:'selection',
+    bracketPairColorization:{enabled:true}, smoothScrolling:true,
+    cursorBlinking:'smooth', padding:{top:8}, tabSize:2, formatOnPaste:true,
+  });
+  monacoEditor.addCommand(monaco.KeyMod.CtrlCmd|monaco.KeyCode.KeyS,function(){saveEditor();});
+  document.getElementById('editorStatus').textContent='Ready';
+}
+
+async function saveEditor(){
+  if(!monacoEditor||!editorCtx)return;
+  var raw=monacoEditor.getValue();
+  var parsed;
+  try{parsed=JSON.parse(raw);}catch(e){
+    document.getElementById('editorStatus').innerHTML='<span class="err">Invalid JSON: '+esc(e.message)+'</span>';return;
+  }
+  document.getElementById('editorStatus').textContent='Saving...';
+  var result;
+  if(editorCtx.type==='schema'){
+    result=await api('PATCH','/models/'+editorCtx.modelId,{fields:parsed.fields||[]});
+  } else {
+    result=await api('PATCH','/content/'+editorCtx.modelName+'/'+editorCtx.entryId,parsed);
+  }
+  if(result.error){
+    document.getElementById('editorStatus').innerHTML='<span class="err">Error: '+esc(result.error)+'</span>';
+  } else {
+    document.getElementById('editorStatus').textContent='Saved';
+    DevOpsPilot.toast((editorCtx.type==='schema'?'Schema':'Entry')+' updated','success');
+    // Refresh model data
+    if(curModel){
+      var fresh=await api('GET','/models');if(!fresh.error)models=fresh;
+      var m=models.find(function(x){return x.id===curModel.id;});if(m)curModel=m;
+      var e=await api('GET','/content/'+curModel.name+'?limit=100');
+      if(!e.error&&Array.isArray(e)){modelContent[curModel.name]=e;curEntries=e;}
+    }
+  }
+}
+
+function ensureMonaco(){
+  if(monacoReady)return Promise.resolve();
+  return new Promise(function(resolve){
+    var s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.52.2/min/vs/loader.min.js';
+    s.onload=function(){
+      require.config({paths:{vs:'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.52.2/min/vs'}});
+      require(['vs/editor/editor.main'],function(){
+        monacoReady=true;
+        var cs=getComputedStyle(document.documentElement);
+        monaco.editor.defineTheme('devops-pilot',{
+          base:'vs-dark',inherit:true,rules:[],
+          colors:{
+            'editor.background':cs.getPropertyValue('--crust').trim(),
+            'editor.lineHighlightBackground':cs.getPropertyValue('--surface0').trim(),
+            'editorLineNumber.foreground':cs.getPropertyValue('--overlay0').trim(),
+          }
+        });
+        resolve();
+      });
+    };
+    document.head.appendChild(s);
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// HELPERS
+// ══════════════════════════════════════════════════════════════════════════════
+async function api(m,p,b){try{var o={method:m,headers:{'Content-Type':'application/json'}};if(b)o.body=JSON.stringify(b);return await(await fetch(API+p,o)).json();}catch(e){return{error:e.message};}}
+function esc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+function dn(n){return n.split(/[-_]/).map(function(w){return w.charAt(0).toUpperCase()+w.slice(1);}).join(' ');}
+function timeAgo(ts){if(!ts)return'';var d=Date.now()-ts,m=Math.floor(d/60000);if(m<1)return'now';if(m<60)return m+'m ago';var h=Math.floor(m/60);if(h<24)return h+'h ago';var dy=Math.floor(h/24);if(dy<30)return dy+'d ago';return new Date(ts).toLocaleDateString();}
+
+DevOpsPilot.on('tabActivated',function(d){if(d.tab&&d.tab.indexOf('builderio')!==-1)loadDashboard();});
+
+// Listen for openModel messages from host (command palette)
+window.addEventListener('message',function(e){
+  if(e.data&&e.data.__devopsPilot&&e.data.type==='openModel'&&e.data.modelId) nav('model',e.data.modelId);
+});
+setModelFilter('all');
+init();
+</script>
+</body>
+</html>
