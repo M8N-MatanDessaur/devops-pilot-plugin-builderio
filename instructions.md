@@ -183,6 +183,24 @@ powershell.exe -ExecutionPolicy Bypass -NoProfile -File "./dashboard/plugins/bui
 powershell.exe -ExecutionPolicy Bypass -NoProfile -Command "./dashboard/plugins/builderio/scripts/Get-ContentSummary.ps1 -Model 'blogs'"
 ```
 
+### Opening in the Dashboard
+
+After creating, updating, or working with Builder.io content, **always offer to open it in the dashboard**. Use the view-plugin endpoint to switch to the Builder.io tab and navigate to a specific model:
+
+```bash
+# Open the Builder.io tab
+curl -s -X POST http://127.0.0.1:3800/api/ui/view-plugin \
+  -H "Content-Type: application/json" \
+  -d '{"plugin":"builderio"}'
+
+# Open the Builder.io tab AND navigate to a specific model
+curl -s -X POST http://127.0.0.1:3800/api/ui/view-plugin \
+  -H "Content-Type: application/json" \
+  -d '{"plugin":"builderio","message":{"type":"openModel","modelId":"MODEL_ID"}}'
+```
+
+After any create/update/delete operation, ask the user: "Want me to open this in the Builder.io dashboard?" Then navigate to the relevant model so they can view the entry, open it in Builder.io's visual editor, or inspect the JSON.
+
 ### Important Notes
 
 - Model names are URL-safe identifiers (e.g., `blog-post`, `team-member`)

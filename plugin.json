@@ -6,6 +6,7 @@
   "icon": "blocks",
   "tint": "160, 120, 210",
   "instructions": "instructions.md",
+  "aiKeywords": ["builder.io", "builderio", "builder model", "builder content", "builder space", "landing page", "page builder", "visual editor", "cms content", "content model"],
   "activationConditions": { "always": true },
   "settings": [
     {
