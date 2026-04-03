@@ -1,7 +1,7 @@
 {
   "id": "builderio",
   "name": "Builder.io",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Manage Builder.io models, schemas, and content entries with AI-powered actions",
   "icon": "blocks",
   "tint": "160, 120, 210",

@@ -714,9 +714,27 @@ function timeAgo(ts){if(!ts)return'';var d=Date.now()-ts,m=Math.floor(d/60000);i
 
 DevOpsPilot.on('tabActivated',function(d){if(d.tab&&d.tab.indexOf('builderio')!==-1)loadDashboard();});
 
-// Listen for openModel messages from host (command palette)
+// Track whether dashboard data is loaded so message handlers can wait
+var _dashReady = false;
+var _pendingNav = null;
+var _origLoadDashboard = loadDashboard;
+loadDashboard = async function() {
+  await _origLoadDashboard();
+  _dashReady = true;
+  // If a navigation was queued while loading, execute it now
+  if (_pendingNav) { var p = _pendingNav; _pendingNav = null; nav(p.page, p.data); }
+};
+
+// Listen for openModel messages from host (command palette, AI view-plugin)
 window.addEventListener('message',function(e){
-  if(e.data&&e.data.__devopsPilot&&e.data.type==='openModel'&&e.data.modelId) nav('model',e.data.modelId);
+  if(e.data&&e.data.__devopsPilot&&e.data.type==='openModel'&&e.data.modelId) {
+    if (_dashReady && models.length > 0) {
+      nav('model', e.data.modelId);
+    } else {
+      // Dashboard still loading; queue the navigation
+      _pendingNav = { page: 'model', data: e.data.modelId };
+    }
+  }
 });
 setModelFilter('all');
 init();
