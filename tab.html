@@ -2,6 +2,8 @@
 <html>
 <head>
 <meta charset="utf-8">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.snow.css">
+<script src="https://cdn.jsdelivr.net/npm/quill@2.0.2/dist/quill.min.js"></script>
 <script src="/plugins/sdk/devops-pilot-sdk.js"></script>
 <style>
   * { box-sizing: border-box; }
@@ -9,734 +11,285 @@
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: var(--surface1); border-radius: 99px; }
   ::-webkit-scrollbar-thumb:hover { background: var(--surface2); }
-  body { margin: 0; overflow-y: auto; min-height: 100vh; }
+  body { margin: 0; overflow: hidden; height: 100vh; display: flex; flex-direction: column; }
 
-  /* ── Shared ─── */
-  .page { display: none; padding: 20px 28px 40px; }
-  .page.active { display: block; }
-  .page.active.full { padding: 0; display: flex; flex-direction: column; height: 100vh; }
+  .toolbar { height: 42px; min-height: 42px; display: flex; align-items: center; gap: 8px; padding: 0 12px; background: var(--mantle); border-bottom: 1px solid var(--surface0); z-index: 10; }
+  .toolbar-icon { width: 20px; height: 20px; color: rgb(160, 120, 210); flex-shrink: 0; }
+  .toolbar-title { font-size: 13px; font-weight: 700; white-space: nowrap; }
+  .conn-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; background: var(--surface1); }
+  .conn-dot.ok { background: var(--green); } .conn-dot.err { background: var(--red); } .conn-dot.pending { background: var(--yellow); }
+  .space-select { background: var(--surface0); border: 1px solid var(--surface1); color: var(--text); padding: 3px 8px; border-radius: var(--radius); font: 12px var(--font-ui); max-width: 220px; cursor: pointer; outline: none; }
   .spacer { flex: 1; }
-  .hdr { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; }
-  .hdr h1 { margin: 0; font-size: 18px; font-weight: 700; }
-  .conn { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
-  .conn.ok { background: var(--green); }
-  .conn.err { background: var(--red); }
-  .conn.pending { background: var(--yellow); }
-  .btn {
-    background: var(--surface1); border: 1px solid var(--overlay0); color: var(--text);
-    padding: 5px 12px; border-radius: var(--radius); cursor: pointer; font: 12px var(--font-ui);
-  }
+  .btn { background: var(--surface1); border: 1px solid var(--overlay0); color: var(--text); padding: 5px 12px; border-radius: var(--radius); cursor: pointer; font: 12px var(--font-ui); white-space: nowrap; }
   .btn:hover { border-color: var(--accent); }
   .btn.primary { background: var(--accent); color: var(--crust); border-color: transparent; }
-  .btn.sm { padding: 4px 10px; font-size: 11px; white-space: nowrap; }
-  .section-title { font-size: 13px; font-weight: 700; color: var(--subtext0); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; }
-  .empty-msg { text-align: center; color: var(--subtext0); padding: 32px; font-size: 13px; }
-  .search-input {
-    background: var(--surface0); border: 1px solid var(--overlay0); color: var(--text);
-    padding: 6px 10px; border-radius: var(--radius); font: 12px var(--font-ui); outline: none;
-  }
-  .search-input:focus { border-color: var(--accent); }
-  .filter-btn {
-    background: var(--surface0); border: 1px solid var(--overlay0); color: var(--subtext0);
-    padding: 5px 10px; border-radius: var(--radius); cursor: pointer; font: 11px var(--font-ui);
-  }
-  .filter-btn:hover { border-color: var(--accent); color: var(--text); }
-  .filter-btn.active { background: var(--accent); color: var(--crust); border-color: transparent; }
-  .badge { font-size: 9px; padding: 1px 5px; border-radius: 3px; font-weight: 600; }
-  .badge.published { background: var(--green); color: var(--crust); }
-  .badge.draft { background: var(--yellow); color: var(--crust); }
-  .badge.archived { background: var(--overlay0); color: var(--subtext0); }
-  .back-bar {
-    display: flex; align-items: center; gap: 8px; padding: 10px 28px;
-    background: var(--mantle); border-bottom: 1px solid var(--surface0);
-  }
-  .back-btn {
-    background: none; border: 1px solid var(--overlay0); color: var(--text); cursor: pointer;
-    font: 12px var(--font-ui); padding: 5px 12px; border-radius: var(--radius);
-    display: flex; align-items: center; gap: 6px;
-  }
-  .back-btn:hover { border-color: var(--accent); color: var(--accent); }
-
-  /* ── Stats Row ─── */
-  .stats { display: flex; gap: 12px; margin-bottom: 24px; }
-  .stat { flex: 1; background: var(--surface0); border: 1px solid var(--overlay0); border-radius: var(--radius-lg); padding: 14px 16px; }
-  .stat-val { font-size: 24px; font-weight: 700; line-height: 1; }
-  .stat-val.accent { color: var(--accent); }
-  .stat-val.green { color: var(--green); }
-  .stat-val.yellow { color: var(--yellow); }
-  .stat-label { font-size: 11px; color: var(--subtext0); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
-
-  /* ── AI Action Cards ─── */
-  .actions-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; margin-bottom: 28px; }
-  .action-card {
-    background: var(--surface0); border: 1px solid var(--overlay0); border-radius: var(--radius-lg);
-    padding: 14px 16px; cursor: pointer; transition: all 0.15s;
-  }
-  .action-card:hover { border-color: var(--accent); background: var(--surface1); transform: translateY(-1px); }
-  .action-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
-  .action-desc { font-size: 11px; color: var(--subtext0); line-height: 1.4; }
-
-  /* ── List Rows (models + entries) ─── */
-  .list-row {
-    display: flex; align-items: center; gap: 12px; padding: 10px 12px;
-    border-bottom: 1px solid var(--surface0); cursor: pointer; transition: background 0.1s;
-  }
-  .list-row:hover { background: var(--surface0); }
-  .list-row:first-child { border-top: 1px solid var(--surface0); }
-  .list-icon {
-    width: 32px; height: 32px; border-radius: var(--radius);
-    display: inline-flex; align-items: center; justify-content: center;
-    font-size: 10px; font-weight: 700; text-transform: uppercase;
-    flex: 0 0 32px; overflow: hidden; line-height: 1; letter-spacing: 0.5px;
-    background: var(--surface2); color: var(--subtext0);
-  }
-  .list-icon.k-page { background: rgba(137,180,250,0.15); color: var(--blue); }
-  .list-icon.k-component { background: rgba(203,166,247,0.15); color: var(--mauve); }
-  .list-icon.k-data { background: rgba(148,226,213,0.15); color: var(--teal); }
-  .list-icon.k-section { background: rgba(250,179,135,0.15); color: var(--peach); }
-  .list-name { font-size: 13px; font-weight: 500; min-width: 0; }
-  .list-meta { font-size: 11px; color: var(--subtext0); white-space: nowrap; }
-  .list-stats { display: flex; gap: 10px; font-size: 11px; color: var(--subtext0); margin-left: auto; white-space: nowrap; }
-  .list-stats strong { color: var(--text); }
-
-  /* ── Filters Bar ─── */
-  .filters { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
-  .filter-count { font-size: 11px; color: var(--subtext0); }
-
-  /* ── Content Table ─── */
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th {
-    text-align: left; padding: 8px 12px; font-size: 11px; font-weight: 600; color: var(--subtext0);
-    text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--overlay0);
-    cursor: pointer; user-select: none;
-  }
-  th:hover { color: var(--text); }
-  th .sa { font-size: 10px; margin-left: 2px; }
-  td { padding: 8px 12px; border-bottom: 1px solid var(--surface0); }
-  tr:hover td { background: var(--surface0); }
-  td.nc { font-weight: 500; max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  td.tc { font-size: 12px; color: var(--subtext0); white-space: nowrap; }
-  .row-actions { display: flex; gap: 6px; white-space: nowrap; }
-
-  /* ── Model Detail Page ─── */
-  .detail-body { padding: 24px 28px 40px; }
-  .detail-hdr { display: flex; align-items: center; gap: 14px; margin-bottom: 24px; }
-  .detail-hdr h1 { margin: 0; font-size: 20px; font-weight: 600; line-height: 1.3; }
-  .detail-subtitle { font-size: 12px; color: var(--subtext0); margin-top: 2px; }
-  .kind-badge { font-size: 10px; padding: 3px 10px; border-radius: 99px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px; }
-  .kind-badge.k-page { background: rgba(137,180,250,0.15); color: var(--blue); }
-  .kind-badge.k-component { background: rgba(203,166,247,0.15); color: var(--mauve); }
-  .kind-badge.k-data { background: rgba(148,226,213,0.15); color: var(--teal); }
-  .kind-badge.k-section { background: rgba(250,179,135,0.15); color: var(--peach); }
-  .detail-actions {
-    display: flex; gap: 8px; margin-bottom: 24px; flex-wrap: wrap;
-    padding: 16px; background: var(--surface0); border: 1px solid var(--overlay0);
-    border-radius: var(--radius-lg);
-  }
-  .detail-actions .section-label {
-    font-size: 10px; font-weight: 600; color: var(--subtext0); text-transform: uppercase;
-    letter-spacing: 0.5px; width: 100%; margin-bottom: 4px;
-  }
-
-  /* ── Schema ─── */
-  .schema-btn {
-    background: var(--surface0); border: 1px solid var(--overlay0); color: var(--text);
-    padding: 8px 14px; border-radius: var(--radius); cursor: pointer; font: 12px var(--font-ui);
-    display: inline-flex; align-items: center; gap: 6px; margin-bottom: 16px;
-  }
-  .schema-btn:hover { border-color: var(--accent); }
-  .schema-btn .arrow { font-size: 10px; transition: transform 0.15s; }
-  .schema-btn.open .arrow { transform: rotate(90deg); }
-  .schema-box {
-    display: none; margin-bottom: 20px; background: var(--surface0);
-    border: 1px solid var(--overlay0); border-radius: var(--radius-lg); padding: 12px 16px;
-  }
-  .schema-box.open { display: block; }
+  .btn.sm { padding: 4px 10px; font-size: 11px; }
+  .btn.danger { color: var(--red); } .btn.danger:hover { border-color: var(--red); }
+  .btn-icon { background: none; border: none; color: var(--subtext0); cursor: pointer; padding: 4px; display: inline-flex; border-radius: var(--radius); }
+  .btn-icon:hover { color: var(--text); background: var(--surface0); }
+  .main { display: flex; flex: 1; overflow: hidden; }
+  .main.no-detail .detail { display: none; }
+  .main.no-detail .content-col { flex: 1; max-width: none; }
+  .sidebar { width: 200px; min-width: 200px; max-width: 200px; background: var(--mantle); border-right: 1px solid var(--surface0); display: flex; flex-direction: column; overflow-y: auto; padding: 8px 0; }
+  .nav-section { padding: 0 10px; margin-bottom: 4px; }
+  .nav-section-title { font-size: 10px; font-weight: 700; color: var(--overlay1); text-transform: uppercase; letter-spacing: 0.5px; padding: 8px 8px 4px; user-select: none; }
+  .nav-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--radius); cursor: pointer; color: var(--subtext1); font-size: 12px; user-select: none; }
+  .nav-item:hover { background: var(--surface0); color: var(--text); }
+  .nav-item.active { background: var(--surface0); color: var(--text); border-left: 2px solid var(--accent); }
+  .nav-item .nav-icon { width: 14px; height: 14px; flex-shrink: 0; opacity: 0.7; }
+  .nav-item .nav-label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .nav-item .nav-count { font-size: 10px; background: var(--surface1); color: var(--subtext0); padding: 1px 6px; border-radius: 99px; font-weight: 600; flex-shrink: 0; }
+  .content-col { width: 320px; min-width: 260px; max-width: 420px; flex-direction: column; border-right: 1px solid var(--surface0); }
+  .filter-bar { display: flex; align-items: center; gap: 6px; padding: 8px 12px; border-bottom: 1px solid var(--surface0); flex-shrink: 0; }
+  .search { flex: 1; min-width: 0; background: var(--surface0); border: 1px solid var(--overlay0); color: var(--text); padding: 5px 10px; border-radius: var(--radius); font: 12px var(--font-ui); outline: none; }
+  .search:focus { border-color: var(--accent); } .search::placeholder { color: var(--subtext0); }
+  .sel { background: var(--surface0); border: 1px solid var(--overlay0); color: var(--text); padding: 5px 6px; border-radius: var(--radius); font: 11px var(--font-ui); outline: none; }
+  .count { font-size: 10px; color: var(--subtext0); white-space: nowrap; }
+  .list { flex: 1; overflow-y: auto; }
+  .row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-bottom: 1px solid var(--surface0); cursor: pointer; }
+  .row:hover { background: var(--surface0); } .row.selected { background: var(--surface0); border-left: 2px solid var(--accent); }
+  .status-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .status-dot.published { background: var(--green); } .status-dot.draft { background: var(--yellow); }
+  .row-body { flex: 1; min-width: 0; }
+  .row-title { font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row-meta { font-size: 10px; color: var(--subtext0); }
+  .row-badge { font-size: 9px; padding: 2px 6px; border-radius: 3px; font-weight: 600; background: var(--surface1); color: var(--subtext0); flex-shrink: 0; text-transform: uppercase; }
+  .row-badge.draft { background: rgba(249,226,175,0.15); color: var(--yellow); }
+  .row-badge.published { background: rgba(166,227,161,0.15); color: var(--green); }
+  .detail { flex: 1; min-width: 360px; display: flex; flex-direction: column; overflow: hidden; background: var(--base); }
+  .detail-header { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--surface0); flex-shrink: 0; }
+  .detail-title { flex: 1; font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .detail-subtitle { font-size: 11px; color: var(--subtext0); }
+  .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--surface0); flex-shrink: 0; padding: 0 16px; }
+  .tab { padding: 8px 14px; font-size: 12px; color: var(--subtext0); cursor: pointer; border-bottom: 2px solid transparent; user-select: none; }
+  .tab:hover { color: var(--text); } .tab.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+  .detail-body { flex: 1; overflow-y: auto; padding: 16px 18px; min-height: 0; }
+  .tab-panel { display: none; } .tab-panel.active { display: block; }
+  .detail-actions { display: flex; align-items: center; gap: 6px; padding: 10px 16px; border-top: 1px solid var(--surface0); flex-shrink: 0; }
+  .field { margin-bottom: 14px; }
+  .field-label { font-size: 11px; color: var(--subtext0); font-weight: 600; margin-bottom: 4px; display: block; }
+  .field-hint { font-size: 10px; color: var(--overlay1); margin-top: 2px; }
+  .field-input { width: 100%; background: var(--surface0); border: 1px solid var(--overlay0); color: var(--text); padding: 7px 10px; border-radius: var(--radius); font: 12px var(--font-ui); outline: none; }
+  .field-input:focus { border-color: var(--accent); } .field-input::placeholder { color: var(--subtext0); }
+  textarea.field-input { resize: vertical; min-height: 80px; }
+  .field-input.mono { font-family: var(--font-mono); font-size: 11px; }
+  .field-readonly { font-size: 12px; color: var(--subtext0); padding: 7px 10px; background: var(--mantle); border-radius: var(--radius); font-family: var(--font-mono); word-break: break-all; }
   .sf { display: flex; align-items: center; gap: 10px; padding: 5px 0; font-size: 12px; border-bottom: 1px solid var(--surface0); }
   .sf:last-child { border-bottom: none; }
-  .sf-n { font-family: var(--font-mono); color: var(--accent); font-weight: 500; min-width: 140px; }
+  .sf-n { font-family: var(--font-mono); color: var(--accent); font-weight: 500; min-width: 120px; }
   .sf-t { font-size: 10px; padding: 2px 8px; border-radius: 3px; font-weight: 600; background: var(--surface2); color: var(--subtext0); }
-  .sf-r { color: var(--red); font-size: 9px; font-weight: 600; }
-  .sf-h { color: var(--overlay1); font-size: 11px; flex: 1; }
-
-  /* ── Recent Changes ─── */
-  .recent-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--radius); }
-  .recent-item:hover { background: var(--surface0); }
-  .recent-name { flex: 1; min-width: 0; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .recent-model { font-size: 10px; color: var(--teal); font-weight: 500; }
-  .recent-time { font-size: 10px; color: var(--overlay1); white-space: nowrap; }
-
-  /* ── JSON Editor Page ─── */
-  .editor-toolbar {
-    display: flex; align-items: center; gap: 8px; padding: 8px 16px;
-    border-bottom: 1px solid var(--overlay0); background: var(--mantle); flex-shrink: 0;
-  }
+  .home { flex: 1; overflow-y: auto; padding: 24px 28px; flex-direction: column; gap: 20px; }
+  .home-header h1 { margin: 0 0 4px; font-size: 20px; font-weight: 700; }
+  .home-subtitle { font-size: 12px; color: var(--subtext0); }
+  .home-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+  .home-card { background: var(--surface0); border: 1px solid var(--overlay0); border-radius: var(--radius-lg, 8px); padding: 16px; cursor: pointer; transition: all 0.12s; }
+  .home-card:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .home-card .hc-val { font-size: 26px; font-weight: 700; line-height: 1; }
+  .home-card .hc-val.accent { color: var(--accent); } .home-card .hc-val.green { color: var(--green); } .home-card .hc-val.yellow { color: var(--yellow); } .home-card .hc-val.peach { color: var(--peach); }
+  .home-card .hc-label { font-size: 11px; color: var(--subtext0); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .home-section-title { font-size: 12px; font-weight: 700; color: var(--subtext0); text-transform: uppercase; letter-spacing: 0.5px; }
+  .home-quick-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; }
+  .home-action { background: var(--surface0); border: 1px solid var(--overlay0); border-radius: var(--radius-lg, 8px); padding: 14px 16px; cursor: pointer; transition: all 0.12s; }
+  .home-action:hover { border-color: var(--accent); background: var(--surface1); transform: translateY(-1px); }
+  .home-action .ha-title { font-size: 13px; font-weight: 600; margin-bottom: 3px; }
+  .home-action .ha-desc { font-size: 11px; color: var(--subtext0); line-height: 1.4; }
+  .home-issues { display: flex; flex-direction: column; gap: 4px; }
+  .home-issue { font-size: 12px; padding: 8px 12px; border-radius: var(--radius); background: var(--surface0); border-left: 3px solid var(--overlay0); }
+  .home-issue.warn { border-left-color: var(--yellow); } .home-issue.info { border-left-color: var(--blue); }
+  .home-recent { display: flex; flex-direction: column; }
+  .home-recent-item { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: var(--radius); font-size: 12px; }
+  .home-recent-item:hover { background: var(--surface0); }
+  .home-recent-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .home-recent-type { font-size: 10px; color: var(--teal); font-weight: 500; }
+  .home-recent-time { font-size: 10px; color: var(--overlay1); white-space: nowrap; }
+  .detail-preview-wrap { display: none; border-top: 1px solid var(--surface0); flex-shrink: 0; }
+  .detail-preview-wrap.active { display: block; }
+  .preview-section-header { display: flex; align-items: center; gap: 6px; padding: 7px 10px; background: var(--mantle); border-bottom: 1px solid var(--surface1); font-size: 10px; font-weight: 600; text-transform: uppercase; color: var(--subtext0); letter-spacing: 0.4px; }
+  .preview-section-header svg { width: 11px; height: 11px; } .preview-section-header .spacer { flex: 1; }
+  .preview-section-header .btn-mini { padding: 3px 8px; font-size: 10px; background: transparent; border: 1px solid var(--surface1); color: var(--subtext0); border-radius: 3px; cursor: pointer; font-family: var(--font-ui); display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+  .preview-section-header .btn-mini svg { width: 11px; height: 11px; }
+  .preview-section-header .btn-mini:hover { border-color: var(--accent); color: var(--text); }
+  .preview-viewport { position: relative; width: 100%; overflow: auto; background: #fff; }
+  .preview-viewport iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none; }
+  .preview-viewport.loading::before { content: 'Loading preview...'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font: 11px var(--font-ui); color: #888; background: var(--crust); z-index: 2; }
+  .preview-zoom-label { font-size: 10px; color: var(--subtext0); min-width: 34px; text-align: center; font-variant-numeric: tabular-nums; }
+  .home-preview { margin-top: 4px; border-radius: var(--radius); border: 1px solid var(--overlay0); }
+  .home-preview-header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--mantle); border-bottom: 1px solid var(--surface1); font-size: 10px; font-weight: 600; text-transform: uppercase; color: var(--subtext0); letter-spacing: 0.4px; }
+  .home-preview-header svg { width: 13px; height: 13px; flex-shrink: 0; } .home-preview-header .spacer { flex: 1; }
+  .home-preview-header .btn-mini { padding: 3px 10px; font-size: 10px; background: transparent; border: 1px solid var(--surface1); color: var(--subtext0); border-radius: 3px; cursor: pointer; font-family: var(--font-ui); white-space: nowrap; flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px; }
+  .home-preview-header .btn-mini svg { width: 11px; height: 11px; }
+  .home-preview-header .btn-mini:hover { border-color: var(--accent); color: var(--text); }
+  .home-preview-viewport { position: relative; width: 100%; overflow: auto; background: #fff; }
+  .home-preview-viewport iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none; }
+  .home-preview-viewport.loading::before { content: 'Loading preview...'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font: 11px var(--font-ui); color: #888; background: var(--crust); z-index: 2; }
+  .rte-wrap { display: flex; flex-direction: column; min-width: 0; background: var(--surface0); border: 1px solid var(--surface1); border-radius: var(--radius); overflow: hidden; }
+  .rte-toolbar-extra { display: flex; gap: 4px; padding: 4px 6px; background: var(--mantle); border-bottom: 1px solid var(--surface1); }
+  .rte-toolbar-extra button { padding: 3px 8px; font-size: 10px; background: transparent; color: var(--subtext0); border: 1px solid transparent; border-radius: 3px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+  .rte-toolbar-extra button:hover { color: var(--text); background: var(--surface0); }
+  .rte-toolbar-extra button.active { color: var(--text); background: var(--surface1); }
+  .rte-wrap .ql-toolbar.ql-snow { border: none !important; border-bottom: 1px solid var(--surface1) !important; background: var(--mantle); }
+  .rte-wrap .ql-toolbar.ql-snow .ql-stroke { stroke: var(--subtext1); } .rte-wrap .ql-toolbar.ql-snow .ql-fill { fill: var(--subtext1); } .rte-wrap .ql-toolbar.ql-snow .ql-picker { color: var(--subtext1); }
+  .rte-wrap .ql-toolbar.ql-snow button:hover .ql-stroke, .rte-wrap .ql-toolbar.ql-snow button.ql-active .ql-stroke { stroke: var(--accent); }
+  .rte-wrap .ql-container.ql-snow { border: none !important; background: var(--base); color: var(--text); font-family: var(--font-ui); font-size: 13px; min-height: 160px; }
+  .rte-wrap .ql-editor { min-height: 160px; max-height: 400px; }
+  .rte-wrap .ql-editor.ql-blank::before { color: var(--overlay1); font-style: normal; }
+  .rte-wrap .ql-picker-options { background: var(--mantle); border-color: var(--surface1) !important; }
+  .rte-code-view { display: none; width: 100%; min-height: 200px; padding: 10px 12px; background: var(--base); color: var(--text); border: none; outline: none; font-family: var(--font-mono); font-size: 11px; line-height: 1.55; resize: vertical; white-space: pre; overflow: auto; }
+  .rte-wrap.code-view .ql-container { display: none; } .rte-wrap.code-view .ql-toolbar { display: none; } .rte-wrap.code-view .rte-code-view { display: block; }
+  .rte-wrap.fullscreen { position: fixed; inset: 0; z-index: 1000; border-radius: 0; background: var(--base); }
+  .rte-wrap.fullscreen .ql-editor { max-height: none; height: calc(100vh - 92px); }
+  .setup { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; gap: 12px; padding: 40px; }
+  .setup h2 { margin: 0; } .setup p { color: var(--subtext0); max-width: 400px; text-align: center; line-height: 1.5; }
+  .empty-msg { text-align: center; color: var(--subtext0); padding: 32px; font-size: 13px; }
+  .skeleton { display: flex; flex-direction: column; gap: 2px; padding: 8px 0; }
+  .skeleton-row { height: 38px; background: var(--surface0); border-radius: var(--radius); animation: shimmer 1.2s ease-in-out infinite alternate; }
+  @keyframes shimmer { from { opacity: 0.5; } to { opacity: 1; } }
+  .modal-overlay { position: fixed; inset: 0; z-index: 3000; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.55); }
+  .modal { background: var(--base); border: 1px solid var(--overlay0); border-radius: var(--radius-lg, 8px); width: 440px; max-width: 90vw; box-shadow: 0 16px 48px rgba(0,0,0,0.3); }
+  .modal-header { padding: 14px 20px; border-bottom: 1px solid var(--overlay0); font-weight: 600; font-size: 14px; }
+  .modal-body { padding: 20px; } .modal-actions { padding: 12px 20px; border-top: 1px solid var(--overlay0); display: flex; justify-content: flex-end; gap: 8px; }
+  .toast { position: fixed; bottom: 16px; right: 16px; z-index: 4000; background: var(--surface0); border: 1px solid var(--overlay0); border-radius: var(--radius); padding: 10px 16px; font-size: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.2); border-left: 3px solid var(--accent); animation: fadeIn 0.15s; }
+  .toast.ok { border-left-color: var(--green); } .toast.err { border-left-color: var(--red); }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  .editor-view { display: none; flex-direction: column; flex: 1; overflow: hidden; }
+  .editor-view.active { display: flex; }
+  .editor-toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 16px; border-bottom: 1px solid var(--overlay0); background: var(--mantle); flex-shrink: 0; }
   .editor-toolbar h2 { margin: 0; font-size: 14px; font-weight: 600; }
   .editor-toolbar .path { font-size: 11px; color: var(--subtext0); font-family: var(--font-mono); }
   #editorContainer { flex: 1; overflow: hidden; }
   .editor-status { padding: 6px 16px; font-size: 11px; color: var(--subtext0); border-top: 1px solid var(--overlay0); background: var(--mantle); flex-shrink: 0; display: flex; align-items: center; gap: 8px; }
-  .editor-status .err { color: var(--red); }
-
-  /* ── Setup ─── */
-  .setup { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 60vh; gap: 12px; padding: 40px; }
-  .setup h2 { margin: 0; }
-  .setup p { color: var(--subtext0); max-width: 400px; text-align: center; line-height: 1.5; }
-  .setup input {
-    background: var(--surface0); border: 1px solid var(--overlay0); color: var(--text);
-    padding: 8px 12px; border-radius: var(--radius); font: 13px var(--font-mono); width: 400px; outline: none;
-  }
-  .setup input:focus { border-color: var(--accent); }
-  .setup .lbl { font-size: 12px; font-weight: 600; align-self: flex-start; margin-left: calc(50% - 200px); margin-bottom: -4px; }
+  .editor-status .err-text { color: var(--red); }
+  @media (max-width: 900px) { .sidebar { width: 48px; min-width: 48px; max-width: 48px; } .nav-item .nav-label, .nav-item .nav-count, .nav-section-title { display: none; } .nav-item { justify-content: center; padding: 8px; } }
 </style>
 </head>
 <body>
-
-<!-- ═══ Not Configured ═══ -->
-<div id="setupScreen" class="setup" style="display:none;">
+<div class="toolbar">
+  <svg class="toolbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+  <span class="toolbar-title">Builder.io</span>
+  <span class="conn-dot" id="connDot"></span>
+  <select class="space-select" id="spaceSelect" onchange="switchSpace(this.value)"></select>
+  <span class="spacer"></span>
+  <button class="btn sm" id="dashboardBtn" style="display:none;" onclick="openDashboard()">Open Builder</button>
+  <button class="btn sm" onclick="refresh()">Refresh</button>
+</div>
+<div class="setup" id="setupScreen" style="display:none;">
   <h2>Builder.io</h2>
-  <p>Builder.io API keys are not configured. Go to Settings > Plugins to add your Builder.io Private and Public API keys.</p>
-  <button class="btn primary" style="padding:8px 24px;" onclick="DevOpsPilot.toast('Open Settings from the sidebar button and go to the Plugins tab to add your API keys.','info')">How to configure</button>
+  <p>No Builder.io spaces configured. Add your Private Key and Public Key in Settings to get started.</p>
+  <button class="btn primary" style="padding:8px 24px;" onclick="DevOpsPilot.openSettings('plugins')">Open Settings</button>
 </div>
-
-<!-- ═══ Dashboard ═══ -->
-<div id="pageDash" class="page">
-  <div class="hdr">
-    <h1>Builder.io</h1>
-    <div class="conn" id="connBadge"></div>
-    <div class="spacer"></div>
-    <button class="btn" onclick="loadDashboard()">Refresh</button>
+<div class="main no-detail" id="mainView" style="display:none;">
+  <div class="sidebar" id="sidebar"></div>
+  <div class="home" id="homeView" style="display:none;"></div>
+  <div class="content-col" id="contentCol" style="display:none;">
+    <div class="filter-bar"><input class="search" id="searchInput" type="text" placeholder="Search..." oninput="onSearch()"><select class="sel" id="statusFilter" onchange="onStatusFilter()" style="display:none;"><option value="all">All</option><option value="published">Published</option><option value="draft">Drafts</option></select><span class="count" id="listCount"></span></div>
+    <div class="list" id="listContainer"></div>
   </div>
-  <div class="stats">
-    <div class="stat"><div class="stat-val accent" id="sModels">-</div><div class="stat-label">Models</div></div>
-    <div class="stat"><div class="stat-val green" id="sPub">-</div><div class="stat-label">Published</div></div>
-    <div class="stat"><div class="stat-val yellow" id="sDraft">-</div><div class="stat-label">Drafts</div></div>
-    <div class="stat"><div class="stat-val" id="sTotal">-</div><div class="stat-label">Total Entries</div></div>
-  </div>
-  <div class="section-title">AI Actions</div>
-  <div class="actions-grid" id="actionsGrid"></div>
-  <div class="section-title">Models</div>
-  <div class="filters">
-    <input class="search-input" style="width:240px;" type="text" placeholder="Search models..." id="modelSearch" oninput="renderModels()">
-    <button class="filter-btn" id="mfAll" onclick="setModelFilter('all')">All</button>
-    <button class="filter-btn" id="mfData" onclick="setModelFilter('data')">Data</button>
-    <button class="filter-btn" id="mfPage" onclick="setModelFilter('page')">Page</button>
-    <button class="filter-btn" id="mfComp" onclick="setModelFilter('component')">Component</button>
-    <div class="spacer"></div>
-    <span class="filter-count" id="modelCount"></span>
-  </div>
-  <div id="modelsList"></div>
-  <div class="section-title" style="margin-top:28px;">Recent Changes</div>
-  <div id="recentList"></div>
-</div>
-
-<!-- ═══ Model Detail ═══ -->
-<div id="pageModel" class="page" style="padding:0;">
-  <div class="back-bar">
-    <button class="back-btn" onclick="nav('dash')">&#8592; Dashboard</button>
-    <div class="spacer"></div>
-    <span id="dFields" style="font-size:11px;color:var(--subtext0);"></span>
-  </div>
-  <div class="detail-body">
-    <div class="detail-hdr">
-      <div class="list-icon" id="dIcon" style="width:40px;min-width:40px;max-width:40px;height:40px;min-height:40px;max-height:40px;font-size:12px;"></div>
-      <div>
-        <h1 id="dName"></h1>
-        <div class="detail-subtitle"><span class="kind-badge" id="dKind"></span></div>
-      </div>
-    </div>
-
-    <div style="display:flex;gap:12px;margin-bottom:24px;" id="dStats"></div>
-
-    <div class="detail-actions">
-      <div class="section-label">AI Actions</div>
-      <button class="btn primary" id="btnAsk">Ask AI about this model</button>
-      <button class="btn" id="btnGen">Generate entries</button>
-      <button class="btn" id="btnExport">Export</button>
-      <button class="btn" id="btnEditSchema">Edit Schema JSON</button>
-    </div>
-
-    <button class="schema-btn" id="schBtn" onclick="toggleSchema()">
-      <span class="arrow" id="schArrow">&#9654;</span> View Schema (<span id="schCount">0</span> fields)
-    </button>
-    <div class="schema-box" id="schBox"></div>
-
-    <div class="section-title">Content Entries</div>
-    <div class="filters">
-      <input class="search-input" style="width:240px;" type="text" placeholder="Search entries..." id="entrySearch" oninput="filterEntries()">
-      <button class="filter-btn" id="fAll" onclick="setEntryFilter('all')">All</button>
-      <button class="filter-btn" id="fPub" onclick="setEntryFilter('published')">Published</button>
-      <button class="filter-btn" id="fDraft" onclick="setEntryFilter('draft')">Drafts</button>
-      <div class="spacer"></div>
-      <span class="filter-count" id="entryCount"></span>
-    </div>
-    <table><thead><tr>
-      <th onclick="sortBy('name')">Name <span class="sa" id="saN"></span></th>
-      <th onclick="sortBy('status')" style="width:90px;">Status <span class="sa" id="saS"></span></th>
-      <th onclick="sortBy('updated')" style="width:120px;">Updated <span class="sa" id="saU"></span></th>
-      <th style="width:230px;">Actions</th>
-    </tr></thead><tbody id="entryBody"></tbody></table>
+  <div class="detail" id="detailPanel">
+    <div class="detail-header"><div style="flex:1;min-width:0;"><div class="detail-title" id="detailTitle"></div><div class="detail-subtitle" id="detailSubtitle"></div></div><button class="btn-icon" onclick="closeDetail()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+    <div class="tabs" id="detailTabs"></div>
+    <div class="detail-body" id="detailBody"><div class="tab-panel active" id="panelContent"></div><div class="tab-panel" id="panelSchema"></div><div class="tab-panel" id="panelMeta"></div></div>
+    <div class="detail-preview-wrap" id="detailPreviewWrap"></div>
+    <div class="detail-actions" id="detailActions"></div>
   </div>
 </div>
-
-<!-- ═══ Action Modal ═══ -->
-<div id="actionModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:100;display:none;align-items:center;justify-content:center;">
-  <div style="background:var(--base);border:1px solid var(--overlay0);border-radius:var(--radius-lg);width:480px;max-width:90vw;box-shadow:0 16px 48px rgba(0,0,0,0.3);">
-    <div style="padding:14px 20px;border-bottom:1px solid var(--overlay0);font-weight:600;font-size:14px;" id="amTitle"></div>
-    <div style="padding:20px;" id="amBody"></div>
-    <div style="padding:12px 20px;border-top:1px solid var(--overlay0);display:flex;justify-content:flex-end;gap:8px;">
-      <button class="btn" onclick="closeActionModal()">Cancel</button>
-      <button class="btn primary" id="amSubmit">Run</button>
-    </div>
-  </div>
-</div>
-
-<!-- ═══ JSON Editor ═══ -->
-<div id="pageEditor" class="page full">
-  <div class="editor-toolbar">
-    <button class="back-btn" id="editorBack">&#8592; Back</button>
-    <h2 id="editorTitle"></h2>
-    <span class="path" id="editorPath"></span>
-    <div class="spacer"></div>
-    <button class="btn primary" id="editorSave" onclick="saveEditor()">Save</button>
-  </div>
+<div class="editor-view" id="editorView">
+  <div class="editor-toolbar"><button class="btn sm" onclick="closeEditor()">Back</button><h2 id="editorTitle"></h2><span class="path" id="editorPath"></span><span class="spacer"></span><button class="btn primary sm" onclick="saveEditor()">Save</button></div>
   <div id="editorContainer"></div>
-  <div class="editor-status">
-    <span id="editorStatus">Ready</span>
-    <div class="spacer"></div>
-    <span>Ctrl+S to save</span>
-  </div>
+  <div class="editor-status"><span id="editorStatus">Ready</span><span class="spacer"></span><span>Ctrl+S to save</span></div>
 </div>
+<div id="modalRoot"></div>
 
 <script>
-var API = '/api/plugins/builderio';
-var models = [], modelContent = {}, allRecent = [];
-var modelFilter = 'all';
-// Detail state
-var curModel = null, curEntries = [], filtered = [], entryFilter = 'all', sField = 'updated', sDir = -1;
-// Editor state
-var monacoEditor = null, monacoReady = false, editorCtx = null;
+var API='/api/plugins/builderio';
+var state={configured:false,spaces:[],activeSpace:'',section:null,items:[],selected:null,search:'',statusFilter:'all',health:null,models:[]};
 
-// ══════════════════════════════════════════════════════════════════════════════
-// AI ACTIONS
-// ══════════════════════════════════════════════════════════════════════════════
-var AI_ACTIONS = [
-  { t:'Generate Content', d:'Create realistic entries for a model using AI',
-    modal: function(){ modelPickerModal('Generate Content', 'Which model do you want to generate content for?', function(mName){
-      DevOpsPilot.askAi('Generate content for Builder.io model "'+mName+'".\nFetch schema:\ncurl -s http://127.0.0.1:3800/api/plugins/builderio/summary/'+mName+'\n\nAsk how many entries to create, then generate realistic production-quality content matching the schema fields. Create each via:\ncurl -s -X POST http://127.0.0.1:3800/api/plugins/builderio/content/'+mName+' -H "Content-Type: application/json" -d \'{"name":"...","data":{...},"published":"draft"}\'');
-    });} },
-  { t:'Find Stale Content', d:'Find content not updated recently -- saves results as a note',
-    modal: function(){ showActionModal('Find Stale Content',
-      '<label style="font-size:12px;font-weight:600;display:block;margin-bottom:6px;">Consider stale after how many days?</label>'
-      +'<input type="number" id="amDays" value="30" min="1" style="width:100%;background:var(--surface0);border:1px solid var(--overlay0);color:var(--text);padding:8px 10px;border-radius:var(--radius);font:13px var(--font-ui);outline:none;">',
-      function(){
-        var days=document.getElementById('amDays').value||30;
-        DevOpsPilot.askAi('Fetch the Builder.io space summary:\ncurl -s http://127.0.0.1:3800/api/plugins/builderio/summary\n\nFind ALL entries across ALL models that have not been updated in the last '+days+' days. Create a well-formatted markdown table sorted by staleness (oldest first) with columns: Model, Entry Name, Status, Last Updated, Days Stale.\n\nSave the result as a note called "Builder.io Stale Content Report" using:\nnode scripts/save-note.js "Builder.io Stale Content Report" --file .ai-workspace/stale-report.md\n\nThen open the note in the dashboard:\ncurl -s -X POST http://127.0.0.1:3800/api/ui/view-note -H "Content-Type: application/json" -d \'{"name":"Builder.io Stale Content Report"}\'');
-      });} },
-  { t:'Bulk Update Field', d:'Change a specific field value across entries in a model',
-    modal: function(){ modelFieldPickerModal(); } },
-  { t:'Export & Backup', d:'Export a model\'s content as a JSON note',
-    modal: function(){ modelPickerModal('Export & Backup', 'Which model do you want to export?', function(mName){
-      DevOpsPilot.askAi('Export all content from Builder.io model "'+mName+'":\ncurl -s -X POST http://127.0.0.1:3800/api/plugins/builderio/content/'+mName+'/export\n\nSave the exported JSON as a note called "'+mName+' Export ['+new Date().toISOString().split('T')[0]+']" using:\nnode scripts/save-note.js "'+mName+' Export" --file .ai-workspace/builder-export.md\n\nThen open the note:\ncurl -s -X POST http://127.0.0.1:3800/api/ui/view-note -H "Content-Type: application/json" -d \'{"name":"'+mName+' Export"}\'');
-    });} },
-];
+async function init(){await loadSpaceSelector();var cfg=await api('GET','/config');if(!cfg||!cfg.configured){document.getElementById('setupScreen').style.display='flex';document.getElementById('mainView').style.display='none';return;}state.configured=true;document.getElementById('setupScreen').style.display='none';await loadHealth();renderSidebar();selectSection({kind:'home',slug:'home',label:'Home'});}
+async function refresh(){if(state.section&&state.section.kind==='home'){await loadHealth();renderHome();}else await loadSection();}
 
-// ══════════════════════════════════════════════════════════════════════════════
-// NAVIGATION
-// ══════════════════════════════════════════════════════════════════════════════
-function nav(page, data) {
-  document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active');});
-  document.getElementById('page' + page.charAt(0).toUpperCase() + page.slice(1)).classList.add('active');
-  if (page === 'dash') window.scrollTo(0,0);
-  if (page === 'model') { openModel(data); window.scrollTo(0,0); }
-  if (page === 'editor') openEditor(data);
-}
+async function loadSpaceSelector(){try{var r=await api('GET','/spaces');state.spaces=r.spaces||[];state.activeSpace=r.activeSpace||'';}catch(_){state.spaces=[];state.activeSpace='';}var sel=document.getElementById('spaceSelect');if(!state.spaces.length){sel.innerHTML='<option value="">-- not configured --</option>';return;}sel.innerHTML=state.spaces.map(function(s){return'<option value="'+esc(s.name)+'"'+(s.name===state.activeSpace?' selected':'')+'>'+esc(s.name)+'</option>';}).join('');}
+async function switchSpace(name){if(!name)return;await api('POST','/spaces/active',{name:name});state.activeSpace=name;var space=state.spaces.find(function(s){return s.name===name;});if(space&&space.repoPath){try{var repos=await(await fetch('/api/repos')).json();var norm=space.repoPath.replace(/\\\\/g,'/').replace(/\\/g,'/').replace(/\/+$/,'');for(var rn in repos){if(repos[rn].replace(/\\\\/g,'/').replace(/\\/g,'/').replace(/\/+$/,'')===norm){await fetch('/api/ui/context',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({activeRepo:rn})});break;}}}catch(_){}}await init();}
 
-// ══════════════════════════════════════════════════════════════════════════════
-// INIT
-// ══════════════════════════════════════════════════════════════════════════════
-async function init() {
-  var c = await api('GET','/config');
-  if (!c.configured) { showSetup(); return; }
-  renderAI();
-  nav('dash');
-  await loadDashboard();
-}
-function showSetup() {
-  document.getElementById('setupScreen').style.display='flex';
-  document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active');});
-}
+async function loadHealth(){var dot=document.getElementById('connDot');dot.className='conn-dot pending';var h=await api('GET','/health');if(h.error){dot.className='conn-dot err';state.health=null;state.models=[];return;}dot.className='conn-dot ok';state.health=h;state.models=h.models||[];var btn=document.getElementById('dashboardBtn');if(btn)btn.style.display=h.dashboardUrl?'':'none';}
+function openDashboard(){var url=state.health&&state.health.dashboardUrl;if(url)window.open(url,'_blank');}
 
-// ══════════════════════════════════════════════════════════════════════════════
-// DASHBOARD
-// ══════════════════════════════════════════════════════════════════════════════
-async function loadDashboard() {
-  var b=document.getElementById('connBadge'); b.className='conn pending';
-  var t=await api('GET','/test');
-  if(t.ok){b.className='conn ok';}else{b.className='conn err';return;}
-  models=await api('GET','/models'); if(models.error)models=[];
-  document.getElementById('sModels').textContent=models.length;
-  modelContent={}; allRecent=[]; var tp=0,td=0;
-  await Promise.all(models.map(function(m){
-    return api('GET','/content/'+m.name+'?limit=100').then(function(e){
-      if(e.error||!Array.isArray(e))e=[];
-      modelContent[m.name]=e;
-      e.forEach(function(x){x._model=m.name;if(x.published==='published')tp++;else td++;allRecent.push(x);});
-    });
-  }));
-  document.getElementById('sPub').textContent=tp;
-  document.getElementById('sDraft').textContent=td;
-  document.getElementById('sTotal').textContent=tp+td;
-  renderModels(); renderRecent();
-}
-function renderAI(){
-  var h='';
-  for(var i=0;i<AI_ACTIONS.length;i++){
-    var a=AI_ACTIONS[i];
-    h+='<div class="action-card" onclick="runAction('+i+')"><div class="action-title">'+esc(a.t)+'</div><div class="action-desc">'+esc(a.d)+'</div></div>';
-  }
-  document.getElementById('actionsGrid').innerHTML=h;
-}
-function runAction(i){
-  var a=AI_ACTIONS[i];
-  if(a.modal) a.modal();
-  else if(a.direct) DevOpsPilot.askAi(a.direct);
-}
+function renderSidebar(){var h=state.health||{};var models=state.models;var html='<div class="nav-section">'+navItem('home','Home',iconSvg('home'),null)+'</div>';var kinds={};models.forEach(function(m){if(!kinds[m.kind])kinds[m.kind]=[];kinds[m.kind].push(m);});['page','section','component','data'].forEach(function(kind){var list=kinds[kind];if(!list||!list.length)return;html+='<div class="nav-section"><div class="nav-section-title">'+kind.charAt(0).toUpperCase()+kind.slice(1)+'s</div>';list.forEach(function(m){html+=navItem('model:'+m.name,displayName(m.name),iconSvg(kind==='page'?'file-text':kind==='data'?'database':'layout'),m.total);});html+='</div>';});if(h.repoPath){html+='<div class="nav-section"><div class="nav-section-title">Studio</div>'+navItem('studio:components','Components',iconSvg('code'),null)+'</div>';}document.getElementById('sidebar').innerHTML=html;highlightNav();}
+function navItem(slug,label,icon,count){return'<div class="nav-item" data-slug="'+slug+'" onclick="onNavClick(\''+slug+'\')"><span class="nav-icon">'+icon+'</span><span class="nav-label">'+esc(label)+'</span>'+(count!==null&&count!==undefined?'<span class="nav-count">'+count+'</span>':'')+'</div>';}
+function highlightNav(){var slug=state.section?(state.section.slug||''):'';document.querySelectorAll('.nav-item').forEach(function(el){el.classList.toggle('active',el.dataset.slug===slug);});}
+function onNavClick(slug){if(slug==='home')selectSection({kind:'home',slug:'home',label:'Home'});else if(slug.startsWith('model:')){var name=slug.slice(6);var m=state.models.find(function(x){return x.name===name;});selectSection({kind:'model',slug:slug,modelName:name,label:displayName(name),count:m?m.total:0,modelId:m?m.id:''});}else if(slug==='studio:components')selectSection({kind:'studio',slug:slug,studioView:'components',label:'Components'});}
 
-// ── Action Modals ────────────────────────────────────────────────────────────
-function showActionModal(title, bodyHtml, onSubmit){
-  document.getElementById('amTitle').textContent=title;
-  document.getElementById('amBody').innerHTML=bodyHtml;
-  document.getElementById('amSubmit').onclick=function(){closeActionModal();onSubmit();};
-  document.getElementById('actionModal').style.display='flex';
-}
-function closeActionModal(){document.getElementById('actionModal').style.display='none';}
+function selectSection(section){state.section=section;state.search='';state.statusFilter='all';state.selected=null;var si=document.getElementById('searchInput');if(si)si.value='';highlightNav();closeDetail();document.getElementById('mainView').style.display='flex';document.getElementById('editorView').classList.remove('active');if(section.kind==='home'){document.getElementById('homeView').style.display='flex';document.getElementById('contentCol').style.display='none';document.getElementById('mainView').classList.add('no-detail');renderHome();}else{document.getElementById('homeView').style.display='none';document.getElementById('contentCol').style.display='flex';document.getElementById('statusFilter').style.display=section.kind==='model'?'':'none';loadSection();}}
 
-var inputStyle='width:100%;background:var(--surface0);border:1px solid var(--overlay0);color:var(--text);padding:8px 10px;border-radius:var(--radius);font:13px var(--font-ui);outline:none;';
-var labelStyle='font-size:12px;font-weight:600;display:block;margin-bottom:6px;';
+function renderHome(){var h=state.health;if(!h){document.getElementById('homeView').innerHTML='<div class="empty-msg">Could not load data.</div>';return;}var html='<div class="home-header"><h1>Dashboard</h1><div class="home-subtitle">Builder.io Space</div></div>';html+='<div style="display:flex;gap:8px;flex-wrap:wrap;">';if(h.dashboardUrl)html+='<div style="display:flex;align-items:center;gap:6px;padding:8px 14px;background:var(--surface0);border:1px solid var(--overlay0);border-radius:var(--radius);font-size:12px;cursor:pointer;" onclick="openDashboard()"><span>Builder.io Dashboard</span></div>';if(h.repoPath)html+='<div style="display:flex;align-items:center;gap:6px;padding:8px 14px;background:var(--surface0);border:1px solid var(--overlay0);border-radius:var(--radius);font-size:12px;"><span>Repo: '+esc(h.repoPath.replace(/\\\\/g,'/').replace(/\\/g,'/'))+'</span></div>';if(h.previewUrl)html+='<div style="display:flex;align-items:center;gap:6px;padding:8px 14px;background:var(--surface0);border:1px solid var(--overlay0);border-radius:var(--radius);font-size:12px;cursor:pointer;" onclick="window.open(\''+esc(h.previewUrl)+'\',\'_blank\')"><span>Live Site: '+esc(h.previewUrl)+'</span></div>';html+='</div>';html+='<div class="home-grid">'+homeCard(h.totalModels,'Models','accent')+homeCard(h.totalEntries,'Total Entries','green')+homeCard(h.totalPublished,'Published','green')+homeCard(h.totalDrafts,'Drafts',h.totalDrafts>20?'yellow':'peach')+'</div>';html+='<div class="home-section-title">Quick Actions</div><div class="home-quick-actions">'+homeAction('Generate Content','Create entries for a model using AI','aiGenerate')+homeAction('Create Model','Define a new content model','aiCreateModel')+homeAction('Find Stale Content','Entries not updated recently','aiStale')+homeAction('Export & Backup','Export all entries of a model','aiExport')+homeAction('Bulk Update','Update a field across entries','aiBulk')+homeAction('Ask AI About Space','Get insights about your space','aiAsk')+'</div>';if(h.issues&&h.issues.length){html+='<div class="home-section-title">Issues</div><div class="home-issues">';h.issues.forEach(function(iss){html+='<div class="home-issue '+iss.level+'">'+esc(iss.message)+'</div>';});html+='</div>';}if(h.recent&&h.recent.length){html+='<div class="home-section-title">Recent Activity</div><div class="home-recent">';h.recent.forEach(function(e){html+='<div class="home-recent-item"><span class="home-recent-name">'+esc(e.name||e.id)+'</span><span class="home-recent-type">'+esc(e._modelName||'')+'</span><span class="home-recent-time">'+timeAgo(e.lastUpdated)+'</span></div>';});html+='</div>';}if(h.previewUrl){html+=renderHomePreview(h.previewUrl);}document.getElementById('homeView').innerHTML=html;if(h.previewUrl){homePreviewZoom=1;api('GET','/preview-check?url='+encodeURIComponent(h.previewUrl)).then(function(check){if(!check||!check.ok)return;requestAnimationFrame(function(){var vp=document.getElementById('homePreviewViewport');if(vp){var w=vp.clientWidth;if(w>0)vp.style.height=Math.round(w*9/16)+'px';}setupHomePreview(h.previewUrl);});});}}
+function homeCard(val,label,color){return'<div class="home-card"><div class="hc-val '+color+'">'+val+'</div><div class="hc-label">'+label+'</div></div>';}
+function homeAction(title,desc,action){return'<div class="home-action" onclick="homeActionClick(\''+action+'\')"><div class="ha-title">'+esc(title)+'</div><div class="ha-desc">'+esc(desc)+'</div></div>';}
+function homeActionClick(action){if(action==='aiGenerate'){modelPickerThenAi('Generate Content',function(m){DevOpsPilot.askAi('Generate content for Builder.io model "'+m+'".\ncurl -s http://127.0.0.1:3800/api/plugins/builderio/summary/'+m+'\n\nAsk how many entries to create.');});}else if(action==='aiCreateModel'){DevOpsPilot.askAi('Create a new Builder.io model.\ncurl -s http://127.0.0.1:3800/api/plugins/builderio/summary\n\nAsk me what kind (data, page, component, section), name, and fields.');}else if(action==='aiStale'){DevOpsPilot.askAi('Find stale content.\ncurl -s http://127.0.0.1:3800/api/plugins/builderio/health\n\nList entries not updated in 30+ days.');}else if(action==='aiExport'){modelPickerThenAi('Export',function(m){DevOpsPilot.askAi('Export all entries from "'+m+'":\ncurl -s -X POST http://127.0.0.1:3800/api/plugins/builderio/content/'+m+'/export\n\nSave as a note.');});}else if(action==='aiBulk'){DevOpsPilot.askAi('Bulk update entries.\ncurl -s http://127.0.0.1:3800/api/plugins/builderio/summary\n\nAsk which model and field to update.');}else if(action==='aiAsk'){DevOpsPilot.askAi('Analyze my Builder.io space:\ncurl -s http://127.0.0.1:3800/api/plugins/builderio/health\ncurl -s http://127.0.0.1:3800/api/plugins/builderio/summary\n\nGive insights.');}}
+function modelPickerThenAi(title,cb){if(!state.models.length){showToast('No models','err');return;}var opts=state.models.map(function(m){return{value:m.name,label:displayName(m.name)+' ('+m.total+')'};});askSelect({title:title,label:'Which model?',options:opts}).then(function(v){if(v)cb(v);});}
 
-function modelPickerModal(title, label, onPick){
-  var opts='';
-  for(var i=0;i<models.length;i++){
-    var m=models[i],cnt=(modelContent[m.name]||[]).length;
-    opts+='<option value="'+esc(m.name)+'">'+esc(dn(m.name))+' ('+m.kind+', '+cnt+' entries)</option>';
-  }
-  showActionModal(title,
-    '<label style="'+labelStyle+'">'+esc(label)+'</label>'
-    +'<select id="amModel" style="'+inputStyle+'">'+opts+'</select>',
-    function(){ var v=document.getElementById('amModel').value; if(v) onPick(v); }
-  );
-}
+var _searchTimer=null;function onSearch(){clearTimeout(_searchTimer);_searchTimer=setTimeout(function(){state.search=document.getElementById('searchInput').value.trim().toLowerCase();renderList();},250);}
+function onStatusFilter(){state.statusFilter=document.getElementById('statusFilter').value;renderList();}
+async function loadSection(){var sec=state.section;if(!sec)return;document.getElementById('listContainer').innerHTML='<div class="skeleton">'+Array(12).fill('<div class="skeleton-row"></div>').join('')+'</div>';if(sec.kind==='model'){var entries=await api('GET','/content/'+sec.modelName+'?limit=200');state.items=Array.isArray(entries)?entries:[];}else if(sec.kind==='studio'){var comps=await api('GET','/repo/components');state.items=Array.isArray(comps)?comps:[];}renderList();}
+function renderList(){var sec=state.section,items=state.items,q=state.search;var cont=document.getElementById('listContainer');if(q)items=items.filter(function(d){var t=(d.name||d.title||d.id||d.relativePath||'').toLowerCase();return t.indexOf(q)!==-1;});if(sec.kind==='model'&&state.statusFilter!=='all')items=items.filter(function(e){return state.statusFilter==='published'?e.published==='published':e.published!=='published';});document.getElementById('listCount').textContent=items.length+(state.items.length!==items.length?' / '+state.items.length:'');if(sec.kind==='studio'){renderStudioList(items,cont);return;}if(!items.length){cont.innerHTML='<div class="empty-msg">No entries found</div>';return;}var html='';items.forEach(function(e){var title=e.name||e.id;var isPub=e.published==='published';var sel=state.selected&&state.selected.id===e.id?' selected':'';html+='<div class="row'+sel+'" data-id="'+esc(e.id)+'" onclick="openItem(\''+esc(e.id)+'\')"><span class="status-dot '+(isPub?'published':'draft')+'"></span><div class="row-body"><div class="row-title">'+esc(title)+'</div><div class="row-meta">'+timeAgo(e.lastUpdated)+'</div></div><span class="row-badge '+(isPub?'published':'draft')+'">'+(isPub?'published':'draft')+'</span></div>';});cont.innerHTML=html;}
+function renderStudioList(items,cont){if(!items.length){cont.innerHTML='<div class="empty-msg">No component files found</div>';return;}var html='';items.forEach(function(f){html+='<div class="row" data-id="'+esc(f.relativePath)+'" onclick="openStudioFile(\''+esc(f.relativePath).replace(/'/g,"\\'")+'\')"><div class="row-body"><div class="row-title">'+esc(f.name)+'</div><div class="row-meta">'+esc(f.relativePath)+'</div></div><span class="row-badge">'+esc((f.name.split('.').pop()||'').toUpperCase())+'</span></div>';});cont.innerHTML=html;}
 
-function modelFieldPickerModal(){
-  var opts='';
-  for(var i=0;i<models.length;i++){
-    var m=models[i],cnt=(modelContent[m.name]||[]).length;
-    opts+='<option value="'+esc(m.name)+'">'+esc(dn(m.name))+' ('+cnt+' entries)</option>';
-  }
-  showActionModal('Bulk Update Field',
-    '<label style="'+labelStyle+'">Which model?</label>'
-    +'<select id="amModel" style="'+inputStyle+'" onchange="updateFieldOptions()">'+opts+'</select>'
-    +'<div style="margin-top:14px;" id="fieldPickerArea"></div>',
-    function(){
-      var mName=document.getElementById('amModel').value;
-      var fieldSel=document.getElementById('amField');
-      var field=fieldSel?fieldSel.value:'';
-      if(!mName||!field)return;
-      DevOpsPilot.askAi('I want to bulk update the "'+field+'" field across all entries in Builder.io model "'+mName+'".\nFetch current entries:\ncurl -s http://127.0.0.1:3800/api/plugins/builderio/summary/'+mName+'\n\nShow me a table of all entries with their current "'+field+'" value. Ask what the new value should be. Show a preview of what will change. Do NOT apply without my explicit confirmation.');
-    }
-  );
-  // Trigger initial field load
-  setTimeout(updateFieldOptions, 50);
-}
+function openDetail(){document.getElementById('mainView').classList.remove('no-detail');document.getElementById('detailPanel').style.display='flex';}
+function closeDetail(){document.getElementById('mainView').classList.add('no-detail');document.getElementById('detailPanel').style.display='none';var wrap=document.getElementById('detailPreviewWrap');if(wrap){wrap.classList.remove('active');wrap.innerHTML='';}if(studioFileEditor){studioFileEditor.dispose();studioFileEditor=null;}state.selected=null;document.querySelectorAll('.row.selected').forEach(function(el){el.classList.remove('selected');});var db=document.getElementById('detailBody');db.style.display='';db.style.flexDirection='';db.style.padding='';var pc=document.getElementById('panelContent');pc.style.display='';pc.style.flex='';}
+function switchTab(tab){document.querySelectorAll('#detailTabs .tab').forEach(function(el){el.classList.toggle('active',el.dataset.tab===tab);});var panels={content:'panelContent',schema:'panelSchema',meta:'panelMeta'};for(var k in panels){var p=document.getElementById(panels[k]);if(p)p.classList.toggle('active',k===tab);}}
 
-function updateFieldOptions(){
-  var mName=document.getElementById('amModel').value;
-  var model=models.find(function(m){return m.name===mName;});
-  var area=document.getElementById('fieldPickerArea');
-  if(!model||!model.fields||!model.fields.length){
-    area.innerHTML='<div style="font-size:12px;color:var(--subtext0);">No fields available</div>';
-    return;
-  }
-  var opts='';
-  for(var i=0;i<model.fields.length;i++){
-    var f=model.fields[i];
-    opts+='<option value="'+esc(f.name)+'">'+esc(f.name)+' ('+f.type+')</option>';
-  }
-  area.innerHTML='<label style="'+labelStyle+'">Which field to update?</label>'
-    +'<select id="amField" style="'+inputStyle+'">'+opts+'</select>';
-}
+async function openItem(id){var sec=state.section;var db=document.getElementById('detailBody');db.style.display='';db.style.flexDirection='';db.style.padding='';var pc=document.getElementById('panelContent');pc.style.display='';pc.style.flex='';var entry=state.items.find(function(e){return e.id===id;});if(!entry){entry=await api('GET','/content/'+sec.modelName+'/'+id);}if(!entry||entry.error){showToast('Entry not found','err');return;}state.selected=entry;openDetail();document.querySelectorAll('.row').forEach(function(el){el.classList.remove('selected');});var cl=document.querySelector('.row[data-id="'+CSS.escape(id)+'"]');if(cl)cl.classList.add('selected');var title=entry.name||entry.id;var isPub=entry.published==='published';document.getElementById('detailTitle').textContent=title;document.getElementById('detailSubtitle').textContent=(isPub?'Published':'Draft')+' - '+(sec.modelName||'');document.getElementById('detailTabs').innerHTML='<div class="tab active" data-tab="content" onclick="switchTab(\'content\')">Content</div><div class="tab" data-tab="schema" onclick="switchTab(\'schema\')">Schema</div><div class="tab" data-tab="meta" onclick="switchTab(\'meta\')">Meta</div>';renderContentFields(entry);renderSchemaTab(sec.modelName);renderMetaTab(entry);renderActions(entry);renderDetailPreview(entry);switchTab('content');}
 
-// ── Model List ───────────────────────────────────────────────────────────────
-function setModelFilter(f){
-  modelFilter=f;
-  ['All','Data','Page','Comp'].forEach(function(x){document.getElementById('mf'+x).classList.toggle('active',f===(x==='All'?'all':x==='Comp'?'component':x.toLowerCase()));});
-  renderModels();
-}
-function renderModels(){
-  var q=(document.getElementById('modelSearch').value||'').toLowerCase();
-  var kl={page:'PG',component:'CP',data:'DT',section:'SC'};
-  var vis=models.filter(function(m){
-    if(modelFilter!=='all'&&m.kind!==modelFilter)return false;
-    if(q&&dn(m.name).toLowerCase().indexOf(q)===-1&&m.name.toLowerCase().indexOf(q)===-1)return false;
-    return true;
-  });
-  document.getElementById('modelCount').textContent=vis.length+' of '+models.length;
-  var h='';
-  for(var i=0;i<vis.length;i++){
-    var m=vis[i],e=modelContent[m.name]||[],pub=e.filter(function(x){return x.published==='published';}).length,dr=e.length-pub;
-    h+='<div class="list-row" onclick="nav(\'model\',\''+m.id+'\')">'
-      +'<div class="list-icon k-'+m.kind+'">'+(kl[m.kind]||'??')+'</div>'
-      +'<div class="list-name">'+esc(dn(m.name))+'</div>'
-      +'<div class="list-meta">'+m.kind+' &middot; '+m.fieldCount+' fields</div>'
-      +'<div class="list-stats">'
-        +'<span><strong>'+e.length+'</strong> entries</span>'
-        +'<span><strong style="color:var(--green)">'+pub+'</strong> pub</span>'
-        +(dr?'<span><strong style="color:var(--yellow)">'+dr+'</strong> draft</span>':'')
-      +'</div></div>';
-  }
-  if(!h)h='<div class="empty-msg">No models match</div>';
-  document.getElementById('modelsList').innerHTML=h;
-  setModelFilter.first=true;
-}
-function renderRecent(){
-  allRecent.sort(function(a,b){return(b.lastUpdated||0)-(a.lastUpdated||0);});
-  var items=allRecent.slice(0,12),h='';
-  for(var i=0;i<items.length;i++){
-    var e=items[i],st=e.published||'draft';
-    h+='<div class="recent-item"><span class="recent-name">'+esc(e.name||'(untitled)')+'</span><span class="recent-model">'+esc(dn(e._model))+'</span><span class="badge '+st+'">'+st+'</span><span class="recent-time">'+timeAgo(e.lastUpdated)+'</span></div>';
-  }
-  document.getElementById('recentList').innerHTML=h||'<div class="empty-msg">No entries yet</div>';
-}
+function renderContentFields(entry){var panel=document.getElementById('panelContent');activeRteInstances=[];_pendingRte=[];var html='<div class="field"><label class="field-label">Name</label><input class="field-input" id="field_name" type="text" value="'+esc(entry.name||'')+'"></div>';if(entry.data&&typeof entry.data==='object'){Object.keys(entry.data).sort().forEach(function(k){html+=renderField(k,entry.data[k],'field_data_'+k);});}panel.innerHTML=html;_pendingRte.forEach(function(r){var el=document.getElementById(r.id);if(el)mountRichEditor(el,r.html,r.fieldKey);});_pendingRte=[];}
 
-// ══════════════════════════════════════════════════════════════════════════════
-// MODEL DETAIL
-// ══════════════════════════════════════════════════════════════════════════════
-function openModel(id){
-  curModel=models.find(function(m){return m.id===id;});
-  if(!curModel)return;
-  curEntries=modelContent[curModel.name]||[];
-  entryFilter='all'; sField='updated'; sDir=-1;
-  var kl={page:'PG',component:'CP',data:'DT',section:'SC'};
-  var ic=document.getElementById('dIcon');ic.className='list-icon k-'+curModel.kind;ic.textContent=kl[curModel.kind]||'??';
-  document.getElementById('dName').textContent=dn(curModel.name);
-  var kb=document.getElementById('dKind');kb.textContent=curModel.kind;kb.className='kind-badge k-'+curModel.kind;
-  document.getElementById('dFields').textContent=curModel.fieldCount+' fields';
-  var n=curModel.name;
-  document.getElementById('btnAsk').onclick=function(){DevOpsPilot.askAi('Fetch Builder.io model summary:\ncurl -s http://127.0.0.1:3800/api/plugins/builderio/summary/'+n+'\n\nGive me a comprehensive overview: schema, content health, recommendations.');};
-  document.getElementById('btnGen').onclick=function(){DevOpsPilot.askAi('Generate content for "'+n+'".\nFetch schema:\ncurl -s http://127.0.0.1:3800/api/plugins/builderio/summary/'+n+'\n\nAsk how many entries, generate realistic content, create via POST.');};
-  document.getElementById('btnExport').onclick=function(){DevOpsPilot.askAi('Export all content from "'+n+'":\ncurl -s -X POST http://127.0.0.1:3800/api/plugins/builderio/content/'+n+'/export\n\nSave as a note.');};
-  document.getElementById('btnEditSchema').onclick=function(){openSchemaEditor();};
-  // Stats
-  var pub=curEntries.filter(function(e){return e.published==='published';}).length,dr=curEntries.length-pub;
-  document.getElementById('dStats').innerHTML=
-    '<div class="stat"><div class="stat-val">'+curEntries.length+'</div><div class="stat-label">Total</div></div>'
-    +'<div class="stat"><div class="stat-val green">'+pub+'</div><div class="stat-label">Published</div></div>'
-    +'<div class="stat"><div class="stat-val yellow">'+dr+'</div><div class="stat-label">Drafts</div></div>';
-  renderSchemaPreview();
-  document.getElementById('schCount').textContent=curModel.fieldCount||0;
-  document.getElementById('schBox').classList.remove('open');
-  document.getElementById('schBtn').classList.remove('open');
-  setEntryFilter('all');
-}
+function renderField(key,val,inputId){var label='<label class="field-label">'+esc(displayName(key))+'</label>';if(val===null||val===undefined)return'<div class="field">'+label+'<input class="field-input" id="'+inputId+'" type="text" value="" placeholder="(empty)"></div>';if(typeof val==='boolean')return'<div class="field">'+label+'<select class="field-input" id="'+inputId+'"><option value="true"'+(val?' selected':'')+'>true</option><option value="false"'+(!val?' selected':'')+'>false</option></select></div>';if(typeof val==='number')return'<div class="field">'+label+'<input class="field-input" id="'+inputId+'" type="number" value="'+val+'"></div>';if(typeof val==='string'){if(val.indexOf('<')!==-1&&val.match(/<[a-z][\s\S]*>/i)){_pendingRte.push({id:inputId+'_rte',html:val,fieldKey:key,type:'html'});return'<div class="field">'+label+'<div id="'+inputId+'_rte" data-rte-mount="true"></div></div>';}if(val.length>100||val.indexOf('\n')!==-1)return'<div class="field">'+label+'<textarea class="field-input" id="'+inputId+'" rows="4">'+esc(val)+'</textarea></div>';if(val.match(/^https?:\/\//))return'<div class="field">'+label+'<input class="field-input" id="'+inputId+'" type="url" value="'+esc(val)+'"></div>';return'<div class="field">'+label+'<input class="field-input" id="'+inputId+'" type="text" value="'+esc(val)+'"></div>';}if(Array.isArray(val)||typeof val==='object'){var j=JSON.stringify(val,null,2);return'<div class="field">'+label+'<textarea class="field-input mono" id="'+inputId+'" rows="'+Math.min(8,j.split('\n').length+1)+'" data-json="true">'+esc(j)+'</textarea><div class="field-hint">'+(Array.isArray(val)?'Array ('+val.length+')':'Object')+'</div></div>';}return'<div class="field">'+label+'<input class="field-input" id="'+inputId+'" type="text" value="'+esc(String(val))+'"></div>';}
 
-function renderSchemaPreview(){
-  if(!curModel||!curModel.fields)return;
-  var h='';
-  for(var i=0;i<curModel.fields.length;i++){
-    var f=curModel.fields[i];
-    h+='<div class="sf"><span class="sf-n">'+esc(f.name)+'</span><span class="sf-t">'+f.type+(f.subType?'<'+f.subType+'>':'')+'</span>'+(f.required?'<span class="sf-r">REQ</span>':'')+(f.helperText?'<span class="sf-h">'+esc(f.helperText)+'</span>':'')+'</div>';
-    if(f.subFields&&f.subFields.length)for(var j=0;j<f.subFields.length;j++){
-      var sf=f.subFields[j];
-      h+='<div class="sf" style="padding-left:20px;"><span class="sf-n" style="opacity:0.7;">'+esc(sf.name)+'</span><span class="sf-t">'+sf.type+'</span></div>';
-    }
-  }
-  document.getElementById('schBox').innerHTML=h;
-}
-function toggleSchema(){
-  var o=document.getElementById('schBox').classList.toggle('open');
-  document.getElementById('schBtn').classList.toggle('open',o);
-}
+async function renderSchemaTab(modelName){var panel=document.getElementById('panelSchema');panel.innerHTML='<div class="empty-msg">Loading schema...</div>';var models=await api('GET','/models');var model=(Array.isArray(models)?models:[]).find(function(m){return m.name===modelName;});if(!model){panel.innerHTML='<div class="empty-msg">Model not found</div>';return;}var html='<div style="margin-bottom:12px;font-size:12px;"><strong>'+esc(model.name)+'</strong> ('+model.kind+') - '+model.fieldCount+' fields</div>';(model.fields||[]).forEach(function(f){html+='<div class="sf"><span class="sf-n">'+esc(f.name)+'</span><span class="sf-t">'+esc(f.type)+'</span>'+(f.required?'<span style="font-size:9px;color:var(--red);">required</span>':'')+'</div>';});panel.innerHTML=html;}
+function renderMetaTab(entry){var html='<div class="field"><label class="field-label">ID</label><div class="field-readonly">'+esc(entry.id)+'</div></div><div class="field"><label class="field-label">Status</label><div class="field-readonly">'+esc(entry.published||'draft')+'</div></div>';if(entry.lastUpdated)html+='<div class="field"><label class="field-label">Last Updated</label><div class="field-readonly">'+esc(new Date(entry.lastUpdated).toLocaleString())+'</div></div>';if(entry.createdDate)html+='<div class="field"><label class="field-label">Created</label><div class="field-readonly">'+esc(new Date(entry.createdDate).toLocaleString())+'</div></div>';html+='<div style="margin-top:20px;"><button class="btn sm" onclick="openJsonEditor()">Open in JSON Editor</button></div>';document.getElementById('panelMeta').innerHTML=html;}
+function renderActions(entry){var isPub=entry.published==='published';var h=state.health||{};var html='<button class="btn primary sm" onclick="saveEntry()">Save</button>';html+=isPub?'<button class="btn sm" onclick="unpublishEntry()">Unpublish</button>':'<button class="btn sm" onclick="publishEntry()">Publish</button>';html+='<button class="btn sm" onclick="askAiAboutEntry()">Ask AI</button><button class="btn sm" onclick="openJsonEditor()">JSON</button>';if(h.dashboardUrl)html+='<button class="btn sm" onclick="openInBuilder()">Builder</button>';html+='<span class="spacer"></span><button class="btn sm danger" onclick="deleteEntry()">Delete</button>';document.getElementById('detailActions').innerHTML=html;}
 
-// ── Entry List ───────────────────────────────────────────────────────────────
-function setEntryFilter(f){
-  entryFilter=f;
-  document.getElementById('fAll').classList.toggle('active',f==='all');
-  document.getElementById('fPub').classList.toggle('active',f==='published');
-  document.getElementById('fDraft').classList.toggle('active',f==='draft');
-  filterEntries();
-}
-function filterEntries(){
-  var q=(document.getElementById('entrySearch').value||'').toLowerCase();
-  filtered=curEntries.filter(function(e){
-    if(entryFilter==='published'&&e.published!=='published')return false;
-    if(entryFilter==='draft'&&e.published==='published')return false;
-    if(q&&(e.name||'').toLowerCase().indexOf(q)===-1)return false;
-    return true;
-  });
-  applySort();
-}
-function sortBy(f){if(sField===f)sDir*=-1;else{sField=f;sDir=f==='updated'?-1:1;}applySort();}
-function applySort(){
-  filtered.sort(function(a,b){
-    if(sField==='name'){var va=(a.name||'').toLowerCase(),vb=(b.name||'').toLowerCase();return va<vb?-sDir:va>vb?sDir:0;}
-    if(sField==='status'){var sa=a.published||'draft',sb=b.published||'draft';return sa<sb?-sDir:sa>sb?sDir:0;}
-    return((b.lastUpdated||0)-(a.lastUpdated||0))*sDir;
-  });
-  document.getElementById('entryCount').textContent=filtered.length+' of '+curEntries.length;
-  ['N','S','U'].forEach(function(x,i){document.getElementById('sa'+x).textContent=sField===(['name','status','updated'][i])?(sDir===1?'\u25B2':'\u25BC'):'';});
-  var h='';
-  for(var i=0;i<filtered.length;i++){
-    var e=filtered[i],st=e.published||'draft',en=esc((e.name||'').replace(/'/g,''));
-    h+='<tr><td class="nc">'+esc(e.name||'(untitled)')+'</td><td><span class="badge '+st+'">'+st+'</span></td><td class="tc">'+timeAgo(e.lastUpdated)+'</td>'
-      +'<td class="row-actions"><button class="btn sm" onclick="openInBuilder(\''+e.id+'\')" title="Open in Builder.io editor">Open</button><button class="btn sm" onclick="openEntryEditor(\''+e.id+'\')">Edit JSON</button><button class="btn sm" onclick="inspectEntry(\''+e.id+'\',\''+en+'\')">Ask AI</button></td></tr>';
-  }
-  if(!h)h='<tr><td colspan="4" class="empty-msg">No entries match</td></tr>';
-  document.getElementById('entryBody').innerHTML=h;
-}
-function openInBuilder(id){
-  window.open('https://builder.io/content/'+id,'_blank');
-}
+async function saveEntry(){var entry=state.selected;if(!entry)return;var sec=state.section;var patch={};var nameEl=document.getElementById('field_name');if(nameEl)patch.name=nameEl.value;activeRteInstances.forEach(function(rte){if(rte.fieldKey){if(!patch.data)patch.data={};patch.data[rte.fieldKey]=rte.getHtml();}});if(entry.data){Object.keys(entry.data).forEach(function(k){var el=document.getElementById('field_data_'+k);if(!el)return;var orig=entry.data[k];if(!patch.data)patch.data={};if(el.dataset.json==='true'){try{patch.data[k]=JSON.parse(el.value);}catch(_){showToast('Invalid JSON in '+k,'err');return;}}else if(typeof orig==='boolean')patch.data[k]=el.value==='true';else if(typeof orig==='number')patch.data[k]=Number(el.value);else patch.data[k]=el.value;});}var r=await api('PATCH','/content/'+sec.modelName+'/'+entry.id,patch);if(r.error){showToast('Save failed: '+r.error,'err');return;}showToast('Saved','ok');await loadSection();}
+async function publishEntry(){var e=state.selected;if(!e)return;var r=await api('POST','/content/'+state.section.modelName+'/'+e.id+'/publish');if(r.error){showToast(r.error,'err');return;}showToast('Published','ok');closeDetail();await loadHealth();renderSidebar();await loadSection();}
+async function unpublishEntry(){var e=state.selected;if(!e)return;var r=await api('POST','/content/'+state.section.modelName+'/'+e.id+'/unpublish');if(r.error){showToast(r.error,'err');return;}showToast('Unpublished','ok');closeDetail();await loadHealth();renderSidebar();await loadSection();}
+async function deleteEntry(){var e=state.selected;if(!e)return;var ok=await askConfirm({title:'Delete Entry',message:'Permanently delete "'+(e.name||e.id)+'"?',confirmText:'Delete',danger:true});if(!ok)return;var r=await api('DELETE','/content/'+state.section.modelName+'/'+e.id);if(r.error){showToast(r.error,'err');return;}showToast('Deleted','ok');closeDetail();await loadHealth();renderSidebar();await loadSection();}
+function askAiAboutEntry(){var e=state.selected;if(!e)return;DevOpsPilot.askAi('Fetch this Builder.io entry:\ncurl -s http://127.0.0.1:3800/api/plugins/builderio/content/'+state.section.modelName+'/'+e.id+'\n\nShow a readable summary and ask what to do.');}
+function openInBuilder(){var h=state.health||{};if(h.dashboardUrl)window.open(h.dashboardUrl,'_blank');}
 
-function inspectEntry(id,name){
-  DevOpsPilot.askAi('Fetch this Builder.io content entry:\ncurl -s http://127.0.0.1:3800/api/plugins/builderio/content/'+curModel.name+'/'+id+'\n\nShow me "'+name+'" in a readable format. Ask what I want to do -- edit, publish/unpublish, duplicate, or delete.');
-}
+var studioFileEditor=null;
+async function openStudioFile(relPath){var r=await api('GET','/repo/file/'+encodeURIComponent(relPath));if(r.error){showToast('Could not read file','err');return;}state.selected={id:relPath,_type:'file',relativePath:relPath,content:r.content,path:r.path};openDetail();document.querySelectorAll('.row').forEach(function(el){el.classList.remove('selected');});var cl=document.querySelector('.row[data-id="'+CSS.escape(relPath)+'"]');if(cl)cl.classList.add('selected');document.getElementById('detailTitle').textContent=relPath.split('/').pop();document.getElementById('detailSubtitle').textContent=relPath;document.getElementById('detailTabs').innerHTML='<div class="tab active" data-tab="content" onclick="switchTab(\'content\')">Code</div><div class="tab" data-tab="meta" onclick="switchTab(\'meta\')">Info</div>';var db=document.getElementById('detailBody');db.style.display='flex';db.style.flexDirection='column';db.style.padding='0';var pc=document.getElementById('panelContent');pc.style.display='flex';pc.style.flexDirection='column';pc.style.flex='1';pc.innerHTML='<div id="studioFileEditorContainer" style="flex:1;min-height:0;"></div>';document.getElementById('panelMeta').innerHTML='<div style="padding:16px;"><div class="field"><label class="field-label">Path</label><div class="field-readonly">'+esc(r.path)+'</div></div><div class="field"><label class="field-label">Size</label><div class="field-readonly">'+formatBytes(r.content.length)+'</div></div></div>';document.getElementById('panelSchema').innerHTML='';var wrap=document.getElementById('detailPreviewWrap');if(wrap){wrap.classList.remove('active');wrap.innerHTML='';}document.getElementById('detailActions').innerHTML='<button class="btn primary sm" onclick="openStudioFileInFilesTab()">Edit</button><button class="btn sm" onclick="aiEditStudioFile()">Edit with AI</button><span class="spacer"></span>';switchTab('content');await ensureMonaco();if(studioFileEditor){studioFileEditor.dispose();studioFileEditor=null;}var ext=relPath.split('.').pop()||'ts';var lang=(ext==='ts'||ext==='tsx')?'typescript':(ext==='js'||ext==='jsx')?'javascript':ext;studioFileEditor=monaco.editor.create(document.getElementById('studioFileEditorContainer'),{value:r.content,language:lang,theme:'devops-pilot',fontSize:13,fontFamily:"'Cascadia Code',Consolas,monospace",minimap:{enabled:false},scrollBeyondLastLine:false,automaticLayout:true,lineNumbers:'on',bracketPairColorization:{enabled:true},readOnly:true,padding:{top:8},tabSize:2});}
+function openStudioFileInFilesTab(){var sel=state.selected;if(!sel)return;var h=state.health||{};fetch('/api/repos').then(function(r){return r.json();}).then(function(repos){var norm=(h.repoPath||'').replace(/\\\\/g,'/').replace(/\\/g,'/').replace(/\/+$/,'');for(var name in repos){if(repos[name].replace(/\\\\/g,'/').replace(/\\/g,'/').replace(/\/+$/,'')===norm){fetch('/api/ui/view-file',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({repo:name,path:sel.relativePath})});return;}}showToast('Repo not found','err');});}
+function aiEditStudioFile(){var sel=state.selected;if(!sel)return;DevOpsPilot.askAi('Edit this component.\ncurl -s http://127.0.0.1:3800/api/plugins/builderio/repo/file/'+encodeURIComponent(sel.relativePath)+'\n\nShow the structure and ask what to change.');}
 
-// ══════════════════════════════════════════════════════════════════════════════
-// JSON EDITOR (Monaco)
-// ══════════════════════════════════════════════════════════════════════════════
-function openSchemaEditor(){
-  var m=curModel;
-  editorCtx={type:'schema',modelId:m.id,modelName:m.name,title:'Schema: '+dn(m.name),path:m.name+'/schema'};
-  nav('editor');
-}
-function openEntryEditor(entryId){
-  var e=curEntries.find(function(x){return x.id===entryId;});
-  if(!e)return;
-  editorCtx={type:'entry',modelName:curModel.name,entryId:entryId,entry:e,title:e.name||'(untitled)',path:curModel.name+'/'+entryId};
-  nav('editor');
-}
-async function openEditor(data){
-  document.getElementById('editorTitle').textContent=editorCtx.title;
-  document.getElementById('editorPath').textContent=editorCtx.path;
-  document.getElementById('editorStatus').textContent='Loading...';
-  document.getElementById('editorBack').onclick=function(){nav('model',curModel.id);};
+var detailPreviewZoom=1,homePreviewZoom=1,PREVIEW_BASE_WIDTH=1280;
+function getEntryUrl(entry){var base=(state.health&&state.health.previewUrl)||'';if(!base)return'';if(entry.data&&entry.data.url)return base+entry.data.url;return'';}
+async function renderDetailPreview(entry){var wrap=document.getElementById('detailPreviewWrap');var pageUrl=getEntryUrl(entry);if(!pageUrl){wrap.classList.remove('active');wrap.innerHTML='';return;}try{var check=await api('GET','/preview-check?url='+encodeURIComponent(pageUrl));if(!check.ok){wrap.classList.remove('active');wrap.innerHTML='';return;}}catch(_){wrap.classList.remove('active');wrap.innerHTML='';return;}wrap.innerHTML=previewHeaderHtml(pageUrl)+'<div class="preview-viewport loading" id="previewViewport"><iframe id="previewFrame" referrerpolicy="no-referrer"></iframe></div>';wrap.classList.add('active');detailPreviewZoom=1;requestAnimationFrame(function(){var vp=document.getElementById('previewViewport');if(vp){var w=vp.clientWidth;if(w>0)vp.style.height=Math.round(w*9/16)+'px';}var frame=document.getElementById('previewFrame');if(frame){frame.onload=function(){var v=document.getElementById('previewViewport');if(v)v.classList.remove('loading');scalePreview('previewViewport','previewFrame',detailPreviewZoom,'previewZoomLabel');};frame.src=pageUrl;}});}
+function previewHeaderHtml(url){return'<div class="preview-section-header"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg> Preview<span class="spacer"></span><button class="btn-mini" onclick="adjustZoom(\'detail\',-0.1)" title="Zoom out"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button><span class="preview-zoom-label" id="previewZoomLabel">100%</span><button class="btn-mini" onclick="adjustZoom(\'detail\',0.1)" title="Zoom in"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button><button class="btn-mini" onclick="reloadPreview(\'detail\')" title="Reload"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button><button class="btn-mini" onclick="window.open(\''+esc(url)+'\',\'_blank\')" title="Open"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button></div>';}
+function renderHomePreview(url){return'<div class="home-preview"><div class="home-preview-header"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg> Live Preview<span class="spacer"></span><button class="btn-mini" onclick="adjustZoom(\'home\',-0.1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button><span class="preview-zoom-label" id="homeZoomLabel">100%</span><button class="btn-mini" onclick="adjustZoom(\'home\',0.1)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg></button><button class="btn-mini" onclick="reloadPreview(\'home\')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button><button class="btn-mini" onclick="window.open(\''+esc(url)+'\',\'_blank\')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></button></div><div class="home-preview-viewport loading" id="homePreviewViewport"><iframe id="homePreviewFrame" referrerpolicy="no-referrer"></iframe></div></div>';}
+function setupHomePreview(url){var vp=document.getElementById('homePreviewViewport'),frame=document.getElementById('homePreviewFrame');if(!vp||!frame)return;frame.onload=function(){vp.classList.remove('loading');scalePreview('homePreviewViewport','homePreviewFrame',homePreviewZoom,'homeZoomLabel');};frame.src=url;}
+function scalePreview(vpId,frameId,zoom,labelId){var vp=document.getElementById(vpId),frame=document.getElementById(frameId);if(!vp||!frame)return;var w=vp.clientWidth;if(w>0)vp.style.height=Math.round(w*9/16)+'px';if(zoom===1){frame.style.width='100%';frame.style.height='100%';frame.style.transform='none';}else{var fw=Math.max(280,Math.round(PREVIEW_BASE_WIDTH/zoom));var s=w/fw;frame.style.width=fw+'px';frame.style.height=Math.ceil(vp.clientHeight/s)+'px';frame.style.transform='scale('+s+')';frame.style.transformOrigin='0 0';}var label=document.getElementById(labelId);if(label)label.textContent=Math.round(zoom*100)+'%';}
+function adjustZoom(which,delta){if(which==='detail'){detailPreviewZoom=Math.max(0.4,Math.min(3,Math.round((detailPreviewZoom+delta)*100)/100));scalePreview('previewViewport','previewFrame',detailPreviewZoom,'previewZoomLabel');}else{homePreviewZoom=Math.max(0.4,Math.min(3,Math.round((homePreviewZoom+delta)*100)/100));scalePreview('homePreviewViewport','homePreviewFrame',homePreviewZoom,'homeZoomLabel');}}
+function reloadPreview(which){var id=which==='detail'?'previewFrame':'homePreviewFrame';var f=document.getElementById(id);if(f)f.src=f.src;}
+window.addEventListener('resize',function(){scalePreview('homePreviewViewport','homePreviewFrame',homePreviewZoom,'homeZoomLabel');scalePreview('previewViewport','previewFrame',detailPreviewZoom,'previewZoomLabel');});
 
-  var content='';
-  if(editorCtx.type==='schema'){
-    // Fetch full model to get latest fields
-    var m=await api('GET','/models/'+editorCtx.modelId);
-    if(m.error){document.getElementById('editorStatus').innerHTML='<span class="err">'+esc(m.error)+'</span>';return;}
-    content=JSON.stringify({name:m.name,kind:m.kind,fields:m.fields||[]},null,2);
-  } else {
-    // Entry: show the full entry data
-    var e=await api('GET','/content/'+editorCtx.modelName+'/'+editorCtx.entryId);
-    if(!e||e.error){document.getElementById('editorStatus').innerHTML='<span class="err">'+(e?esc(e.error):'Not found')+'</span>';return;}
-    editorCtx.entry=e;
-    content=JSON.stringify({name:e.name,published:e.published||'draft',data:e.data||{}},null,2);
-  }
+var activeRteInstances=[],_pendingRte=[];
+function mountRichEditor(mountEl,initialHtml,fieldKey){mountEl.innerHTML='';var wrap=document.createElement('div');wrap.className='rte-wrap';var extra=document.createElement('div');extra.className='rte-toolbar-extra';extra.innerHTML='<button type="button" data-act="code"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg> Code</button><button type="button" data-act="fullscreen"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg> Fullscreen</button>';wrap.appendChild(extra);var editorEl=document.createElement('div');wrap.appendChild(editorEl);var codeEl=document.createElement('textarea');codeEl.className='rte-code-view';codeEl.spellcheck=false;wrap.appendChild(codeEl);mountEl.appendChild(wrap);var quill=new Quill(editorEl,{theme:'snow',modules:{toolbar:[[{'header':[1,2,3,4,5,6,false]}],['bold','italic','underline','strike'],[{'list':'ordered'},{'list':'bullet'}],[{'align':[]}],['blockquote','code-block'],['link','image'],['clean']]},placeholder:'Write content...'});try{quill.clipboard.dangerouslyPasteHTML(initialHtml||'');}catch(_){}extra.querySelector('[data-act="code"]').addEventListener('click',function(e){e.preventDefault();if(wrap.classList.contains('code-view')){try{quill.clipboard.dangerouslyPasteHTML(codeEl.value);}catch(_){}wrap.classList.remove('code-view');e.currentTarget.classList.remove('active');}else{codeEl.value=quill.root.innerHTML.replace(/></g,'>\n<');wrap.classList.add('code-view');e.currentTarget.classList.add('active');codeEl.focus();}});extra.querySelector('[data-act="fullscreen"]').addEventListener('click',function(e){e.preventDefault();wrap.classList.toggle('fullscreen');e.currentTarget.classList.toggle('active');});var rte={fieldKey:fieldKey,getHtml:function(){return wrap.classList.contains('code-view')?codeEl.value:quill.root.innerHTML;},quill:quill};activeRteInstances.push(rte);return rte;}
 
-  await ensureMonaco();
-  var container=document.getElementById('editorContainer');
-  if(monacoEditor){monacoEditor.dispose();monacoEditor=null;}
-  monacoEditor=monaco.editor.create(container,{
-    value:content, language:'json', theme:'devops-pilot',
-    fontSize:13, fontFamily:"'Cascadia Code','Cascadia Mono',Consolas,'Courier New',monospace",
-    minimap:{enabled:true}, scrollBeyondLastLine:false, wordWrap:'off',
-    automaticLayout:true, lineNumbers:'on', renderWhitespace:'selection',
-    bracketPairColorization:{enabled:true}, smoothScrolling:true,
-    cursorBlinking:'smooth', padding:{top:8}, tabSize:2, formatOnPaste:true,
-  });
-  monacoEditor.addCommand(monaco.KeyMod.CtrlCmd|monaco.KeyCode.KeyS,function(){saveEditor();});
-  document.getElementById('editorStatus').textContent='Ready';
-}
+var monacoEditor=null,monacoReady=false,editorCtx=null;
+function openJsonEditor(){var entry=state.selected;if(!entry)return;editorCtx={modelName:state.section.modelName,entryId:entry.id,entry:entry};document.getElementById('mainView').style.display='none';document.getElementById('editorView').classList.add('active');document.getElementById('editorTitle').textContent=entry.name||entry.id;document.getElementById('editorPath').textContent=state.section.modelName+'/'+entry.id;document.getElementById('editorStatus').textContent='Loading...';ensureMonaco().then(function(){var container=document.getElementById('editorContainer');if(monacoEditor){monacoEditor.dispose();monacoEditor=null;}monacoEditor=monaco.editor.create(container,{value:JSON.stringify(entry,null,2),language:'json',theme:'devops-pilot',fontSize:13,fontFamily:"'Cascadia Code',Consolas,monospace",minimap:{enabled:true},scrollBeyondLastLine:false,automaticLayout:true,lineNumbers:'on',bracketPairColorization:{enabled:true},padding:{top:8},tabSize:2});monacoEditor.addCommand(monaco.KeyMod.CtrlCmd|monaco.KeyCode.KeyS,function(){saveEditor();});document.getElementById('editorStatus').textContent='Ready';});}
+function closeEditor(){document.getElementById('editorView').classList.remove('active');document.getElementById('mainView').style.display='flex';}
+async function saveEditor(){if(!monacoEditor||!editorCtx)return;var parsed;try{parsed=JSON.parse(monacoEditor.getValue());}catch(e){document.getElementById('editorStatus').innerHTML='<span class="err-text">Invalid JSON</span>';return;}document.getElementById('editorStatus').textContent='Saving...';var patch={};if(parsed.name)patch.name=parsed.name;if(parsed.data)patch.data=parsed.data;if(parsed.published)patch.published=parsed.published;var r=await api('PATCH','/content/'+editorCtx.modelName+'/'+editorCtx.entryId,patch);if(r.error)document.getElementById('editorStatus').innerHTML='<span class="err-text">'+esc(r.error)+'</span>';else{document.getElementById('editorStatus').textContent='Saved';showToast('Updated','ok');await loadSection();}}
+function ensureMonaco(){if(monacoReady)return Promise.resolve();return new Promise(function(resolve){var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.52.2/min/vs/loader.min.js';s.onload=function(){require.config({paths:{vs:'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.52.2/min/vs'}});require(['vs/editor/editor.main'],function(){monacoReady=true;var cs=getComputedStyle(document.documentElement);monaco.editor.defineTheme('devops-pilot',{base:'vs-dark',inherit:true,rules:[],colors:{'editor.background':cs.getPropertyValue('--crust').trim(),'editor.lineHighlightBackground':cs.getPropertyValue('--surface0').trim(),'editorLineNumber.foreground':cs.getPropertyValue('--overlay0').trim()}});resolve();});};document.head.appendChild(s);});}
 
-async function saveEditor(){
-  if(!monacoEditor||!editorCtx)return;
-  var raw=monacoEditor.getValue();
-  var parsed;
-  try{parsed=JSON.parse(raw);}catch(e){
-    document.getElementById('editorStatus').innerHTML='<span class="err">Invalid JSON: '+esc(e.message)+'</span>';return;
-  }
-  document.getElementById('editorStatus').textContent='Saving...';
-  var result;
-  if(editorCtx.type==='schema'){
-    result=await api('PATCH','/models/'+editorCtx.modelId,{fields:parsed.fields||[]});
-  } else {
-    result=await api('PATCH','/content/'+editorCtx.modelName+'/'+editorCtx.entryId,parsed);
-  }
-  if(result.error){
-    document.getElementById('editorStatus').innerHTML='<span class="err">Error: '+esc(result.error)+'</span>';
-  } else {
-    document.getElementById('editorStatus').textContent='Saved';
-    DevOpsPilot.toast((editorCtx.type==='schema'?'Schema':'Entry')+' updated','success');
-    // Refresh model data
-    if(curModel){
-      var fresh=await api('GET','/models');if(!fresh.error)models=fresh;
-      var m=models.find(function(x){return x.id===curModel.id;});if(m)curModel=m;
-      var e=await api('GET','/content/'+curModel.name+'?limit=100');
-      if(!e.error&&Array.isArray(e)){modelContent[curModel.name]=e;curEntries=e;}
-    }
-  }
-}
+function askConfirm(opts){return new Promise(function(resolve){var root=document.getElementById('modalRoot');root.innerHTML='<div class="modal-overlay"><div class="modal"><div class="modal-header">'+esc(opts.title)+'</div><div class="modal-body"><p style="margin:0;font-size:13px;">'+esc(opts.message)+'</p></div><div class="modal-actions"><button class="btn" id="mc">Cancel</button><button class="btn '+(opts.danger?'danger':'primary')+'" id="mo">'+esc(opts.confirmText||'OK')+'</button></div></div></div>';document.getElementById('mc').onclick=function(){root.innerHTML='';resolve(false);};document.getElementById('mo').onclick=function(){root.innerHTML='';resolve(true);};});}
+function askSelect(opts){return new Promise(function(resolve){var root=document.getElementById('modalRoot');var oh=(opts.options||[]).map(function(o){return'<option value="'+esc(o.value)+'">'+esc(o.label)+'</option>';}).join('');root.innerHTML='<div class="modal-overlay"><div class="modal"><div class="modal-header">'+esc(opts.title)+'</div><div class="modal-body"><label class="field-label">'+esc(opts.label)+'</label><select class="field-input" id="ms">'+oh+'</select></div><div class="modal-actions"><button class="btn" id="mc">Cancel</button><button class="btn primary" id="mo">OK</button></div></div></div>';document.getElementById('mc').onclick=function(){root.innerHTML='';resolve(null);};document.getElementById('mo').onclick=function(){root.innerHTML='';resolve(document.getElementById('ms').value);};});}
+function showToast(msg,level){var ex=document.querySelector('.toast');if(ex)ex.remove();var el=document.createElement('div');el.className='toast'+(level?' '+level:'');el.textContent=msg;document.body.appendChild(el);setTimeout(function(){el.remove();},3000);}
 
-function ensureMonaco(){
-  if(monacoReady)return Promise.resolve();
-  return new Promise(function(resolve){
-    var s=document.createElement('script');
-    s.src='https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.52.2/min/vs/loader.min.js';
-    s.onload=function(){
-      require.config({paths:{vs:'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.52.2/min/vs'}});
-      require(['vs/editor/editor.main'],function(){
-        monacoReady=true;
-        var cs=getComputedStyle(document.documentElement);
-        monaco.editor.defineTheme('devops-pilot',{
-          base:'vs-dark',inherit:true,rules:[],
-          colors:{
-            'editor.background':cs.getPropertyValue('--crust').trim(),
-            'editor.lineHighlightBackground':cs.getPropertyValue('--surface0').trim(),
-            'editorLineNumber.foreground':cs.getPropertyValue('--overlay0').trim(),
-          }
-        });
-        resolve();
-      });
-    };
-    document.head.appendChild(s);
-  });
-}
-
-// ══════════════════════════════════════════════════════════════════════════════
-// HELPERS
-// ══════════════════════════════════════════════════════════════════════════════
 async function api(m,p,b){try{var o={method:m,headers:{'Content-Type':'application/json'}};if(b)o.body=JSON.stringify(b);return await(await fetch(API+p,o)).json();}catch(e){return{error:e.message};}}
-function esc(s){var d=document.createElement('div');d.textContent=s;return d.innerHTML;}
-function dn(n){return n.split(/[-_]/).map(function(w){return w.charAt(0).toUpperCase()+w.slice(1);}).join(' ');}
-function timeAgo(ts){if(!ts)return'';var d=Date.now()-ts,m=Math.floor(d/60000);if(m<1)return'now';if(m<60)return m+'m ago';var h=Math.floor(m/60);if(h<24)return h+'h ago';var dy=Math.floor(h/24);if(dy<30)return dy+'d ago';return new Date(ts).toLocaleDateString();}
+function esc(s){var d=document.createElement('div');d.textContent=s||'';return d.innerHTML;}
+function displayName(n){return(n||'').split(/[-_]/).map(function(w){return w.charAt(0).toUpperCase()+w.slice(1);}).join(' ');}
+function timeAgo(ts){if(!ts)return'';var d=Date.now()-new Date(ts).getTime(),m=Math.floor(d/60000);if(m<1)return'now';if(m<60)return m+'m ago';var h=Math.floor(m/60);if(h<24)return h+'h ago';var dy=Math.floor(h/24);if(dy<30)return dy+'d ago';return new Date(ts).toLocaleDateString();}
+function formatBytes(b){if(!b)return'0 B';var k=1024,s=['B','KB','MB','GB'];var i=Math.floor(Math.log(b)/Math.log(k));return parseFloat((b/Math.pow(k,i)).toFixed(1))+' '+s[i];}
+function iconSvg(name){var i={'home':'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>','file-text':'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>','database':'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></svg>','layout':'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>','code':'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>'};return i[name]||'';}
 
-DevOpsPilot.on('tabActivated',function(d){if(d.tab&&d.tab.indexOf('builderio')!==-1)loadDashboard();});
-
-// Track whether dashboard data is loaded so message handlers can wait
-var _dashReady = false;
-var _pendingNav = null;
-var _origLoadDashboard = loadDashboard;
-loadDashboard = async function() {
-  await _origLoadDashboard();
-  _dashReady = true;
-  // If a navigation was queued while loading, execute it now
-  if (_pendingNav) { var p = _pendingNav; _pendingNav = null; nav(p.page, p.data); }
-};
-
-// Listen for openModel messages from host (command palette, AI view-plugin)
-window.addEventListener('message',function(e){
-  if(e.data&&e.data.__devopsPilot&&e.data.type==='openModel'&&e.data.modelId) {
-    if (_dashReady && models.length > 0) {
-      nav('model', e.data.modelId);
-    } else {
-      // Dashboard still loading; queue the navigation
-      _pendingNav = { page: 'model', data: e.data.modelId };
-    }
-  }
-});
-setModelFilter('all');
+DevOpsPilot.on('tabActivated',function(d){if(d.tab&&d.tab.indexOf('builderio')!==-1)refresh();});
+window.addEventListener('message',function(e){if(!e.data||!e.data.__devopsPilot)return;if(e.data.type==='configChanged'&&e.data.plugin==='builderio')loadSpaceSelector().then(function(){init();});});
 init();
 </script>
 </body>

@@ -1,30 +1,16 @@
 {
   "id": "builderio",
   "name": "Builder.io",
-  "version": "1.2.0",
+  "version": "2.0.0",
   "description": "Manage Builder.io models, schemas, and content entries with AI-powered actions",
   "icon": "blocks",
   "tint": "160, 120, 210",
   "instructions": "instructions.md",
   "aiKeywords": ["builder.io", "builderio", "builder model", "builder content", "builder space", "landing page", "page builder", "visual editor", "cms content", "content model"],
   "activationConditions": { "always": true },
-  "settings": [
-    {
-      "key": "privateKey",
-      "label": "Private API Key",
-      "description": "Builder.io private key (starts with bpk-). Found in Settings > Space.",
-      "placeholder": "bpk-...",
-      "secret": true
-    },
-    {
-      "key": "publicKey",
-      "label": "Public API Key",
-      "description": "Builder.io public API key for content reads.",
-      "placeholder": "Your public API key",
-      "secret": false
-    }
-  ],
+  "settings": [],
   "contributions": {
+    "settingsHtml": "settings.html",
     "centerTabs": [
       {
         "id": "manager",

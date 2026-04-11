@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Builder.io Spaces</title>
+<script src="/plugins/sdk/devops-pilot-sdk.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { padding: 0; margin: 0; font-family: var(--font-ui); color: var(--text); background: transparent; }
+  .section-desc { font-size: 11px; color: var(--subtext0); margin-bottom: 14px; }
+  .space-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+  .space-card {
+    display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+    background: var(--surface0); border: 1px solid var(--surface1); border-radius: var(--radius, 6px);
+    transition: border-color 0.12s;
+  }
+  .space-card.active { border-color: var(--accent); }
+  .space-card .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--surface1); }
+  .space-card.active .dot { background: var(--green); }
+  .space-info { flex: 1; min-width: 0; }
+  .space-name { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .space-meta { font-size: 10px; color: var(--subtext0); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .space-actions { display: flex; gap: 4px; flex-shrink: 0; }
+  .space-actions button {
+    padding: 3px 8px; font-size: 10px; background: transparent;
+    border: 1px solid var(--surface1); border-radius: var(--radius, 6px);
+    color: var(--subtext1); cursor: pointer; font-family: var(--font-ui);
+  }
+  .space-actions button:hover { border-color: var(--accent); color: var(--text); }
+  .space-actions button.danger:hover { border-color: var(--red); color: var(--red); }
+  .empty-msg { font-size: 12px; color: var(--subtext0); padding: 12px 0; }
+  .form-area {
+    padding: 14px; background: var(--surface0);
+    border: 1px solid var(--surface1); border-radius: var(--radius, 6px);
+  }
+  .form-title { font-size: 12px; font-weight: 600; margin-bottom: 12px; }
+  .field { margin-bottom: 10px; }
+  .field label { display: block; font-size: 11px; color: var(--subtext0); margin-bottom: 3px; }
+  .field input, .field select {
+    width: 100%; padding: 6px 8px; background: var(--base);
+    border: 1px solid var(--surface1); border-radius: var(--radius, 6px);
+    color: var(--text); font: 12px var(--font-ui); outline: none;
+  }
+  .field input:focus, .field select:focus { border-color: var(--accent); }
+  .field input::placeholder { color: var(--subtext0); }
+  .field .hint { font-size: 10px; color: var(--overlay1); margin-top: 2px; }
+  .form-btns { display: flex; gap: 6px; margin-top: 14px; }
+  .btn {
+    padding: 6px 14px; font: 11px var(--font-ui); cursor: pointer;
+    border-radius: var(--radius, 6px); border: 1px solid var(--surface1);
+    background: var(--surface0); color: var(--text);
+  }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { background: var(--accent); color: var(--crust); border-color: transparent; font-weight: 600; }
+  .btn.primary:hover { filter: brightness(1.1); }
+  .add-btn { margin-bottom: 16px; }
+  .pw-wrap { display: flex; gap: 0; }
+  .pw-wrap input { border-radius: var(--radius, 6px) 0 0 var(--radius, 6px); flex: 1; }
+  .pw-toggle {
+    background: var(--surface0); border: 1px solid var(--surface1); border-left: none;
+    border-radius: 0 var(--radius, 6px) var(--radius, 6px) 0; padding: 0 10px;
+    cursor: pointer; color: var(--subtext0); display: flex; align-items: center;
+  }
+  .pw-toggle:hover { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<div class="section-desc">
+  Manage the Builder.io spaces this plugin can connect to. The active space is used for all API operations and the dashboard tab.
+</div>
+
+<div class="space-list" id="spaceList">
+  <div class="empty-msg">Loading...</div>
+</div>
+
+<button class="btn add-btn" id="addBtn" onclick="showForm()">+ Add Space</button>
+
+<div class="form-area" id="formArea" style="display:none;">
+  <div class="form-title" id="formTitle">Add Space</div>
+  <div class="field">
+    <label>Display Name</label>
+    <input id="fName" type="text" placeholder="My Builder Space">
+  </div>
+  <div class="field">
+    <label>Private API Key</label>
+    <div class="pw-wrap">
+      <input id="fPrivateKey" type="password" placeholder="bpk-...">
+      <button type="button" class="pw-toggle" onclick="togglePw('fPrivateKey')">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+      </button>
+    </div>
+    <div class="hint">Found in Builder.io > Settings > Space. Starts with bpk-.</div>
+  </div>
+  <div class="field">
+    <label>Public API Key</label>
+    <input id="fPublicKey" type="text" placeholder="Your public API key">
+    <div class="hint">Found in Builder.io > Settings > Space.</div>
+  </div>
+  <div class="field">
+    <label>Preview URL <span style="font-weight:400;color:var(--overlay1);">(optional)</span></label>
+    <input id="fPreviewUrl" type="url" placeholder="https://mysite.com or http://localhost:3000">
+    <div class="hint">Frontend URL for live preview. Page path is appended automatically.</div>
+  </div>
+  <div class="field">
+    <label>Local Repo <span style="font-weight:400;color:var(--overlay1);">(optional)</span></label>
+    <select id="fRepoPath">
+      <option value="">-- None --</option>
+    </select>
+    <div class="hint">Select from repos configured in DevOps Pilot. Enables AI to read components and work on the codebase.</div>
+  </div>
+  <div class="field">
+    <label>Builder.io Dashboard URL <span style="font-weight:400;color:var(--overlay1);">(optional)</span></label>
+    <input id="fDashboardUrl" type="url" placeholder="https://builder.io/content">
+    <div class="hint">Link to open Builder.io visual editor for manual editing.</div>
+  </div>
+  <div class="form-btns">
+    <button class="btn primary" onclick="saveForm()">Save</button>
+    <button class="btn" onclick="hideForm()">Cancel</button>
+  </div>
+</div>
+
+<script>
+var API = '/api/plugins/builderio';
+var spaces = [], activeSpace = '', editingName = null, availableRepos = {};
+
+function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+async function loadSpaces() {
+  try {
+    var r = await fetch(API + '/spaces');
+    var data = await r.json();
+    spaces = data.spaces || [];
+    activeSpace = data.activeSpace || '';
+  } catch (_) { spaces = []; activeSpace = ''; }
+  try {
+    var rr = await fetch('/api/repos');
+    availableRepos = await rr.json();
+  } catch (_) { availableRepos = {}; }
+  render();
+}
+
+function render() {
+  var el = document.getElementById('spaceList');
+  if (!spaces.length) { el.innerHTML = '<div class="empty-msg">No spaces configured. Click "+ Add Space" to get started.</div>'; return; }
+  el.innerHTML = spaces.map(function(s) {
+    var isActive = s.name === activeSpace;
+    var meta = s.publicKey ? s.publicKey.substring(0, 12) + '...' : '';
+    if (s.previewUrl) meta += ' - ' + s.previewUrl;
+    return '<div class="space-card' + (isActive ? ' active' : '') + '">'
+      + '<div class="dot"></div><div class="space-info">'
+      + '<div class="space-name">' + esc(s.name) + '</div>'
+      + '<div class="space-meta">' + esc(meta) + '</div>'
+      + '</div><div class="space-actions">'
+      + (isActive ? '' : '<button onclick="setActive(\'' + esc(s.name).replace(/'/g, "\\'") + '\')">Set Active</button>')
+      + '<button onclick="editSpace(\'' + esc(s.name).replace(/'/g, "\\'") + '\')">Edit</button>'
+      + '<button class="danger" onclick="removeSpace(\'' + esc(s.name).replace(/'/g, "\\'") + '\')">Remove</button>'
+      + '</div></div>';
+  }).join('');
+}
+
+function showForm(space) {
+  editingName = space ? space.name : null;
+  document.getElementById('formTitle').textContent = space ? 'Edit Space' : 'Add Space';
+  document.getElementById('fName').value = space ? space.name : '';
+  document.getElementById('fPublicKey').value = space ? space.publicKey : '';
+  document.getElementById('fPreviewUrl').value = space ? (space.previewUrl || '') : '';
+  document.getElementById('fDashboardUrl').value = space ? (space.dashboardUrl || '') : '';
+  document.getElementById('fPrivateKey').value = '';
+  document.getElementById('fPrivateKey').placeholder = space ? '(unchanged)' : 'bpk-...';
+  // Populate repo dropdown
+  var sel = document.getElementById('fRepoPath');
+  var currentRepo = space ? (space.repoPath || '') : '';
+  sel.innerHTML = '<option value="">-- None --</option>';
+  for (var rn in availableRepos) {
+    var rp = availableRepos[rn].replace(/\\\\/g, '/').replace(/\\/g, '/');
+    var selected = (rp === currentRepo.replace(/\\\\/g, '/').replace(/\\/g, '/')) ? ' selected' : '';
+    sel.innerHTML += '<option value="' + esc(rp) + '"' + selected + '>' + esc(rn) + '</option>';
+  }
+  document.getElementById('formArea').style.display = '';
+  document.getElementById('addBtn').style.display = 'none';
+  document.getElementById('fName').focus();
+}
+
+function hideForm() { document.getElementById('formArea').style.display = 'none'; document.getElementById('addBtn').style.display = ''; editingName = null; }
+
+async function saveForm() {
+  var name = document.getElementById('fName').value.trim();
+  var publicKey = document.getElementById('fPublicKey').value.trim();
+  var privateKey = document.getElementById('fPrivateKey').value;
+  var previewUrl = document.getElementById('fPreviewUrl').value.trim().replace(/\/+$/, '');
+  var repoPath = document.getElementById('fRepoPath').value.trim().replace(/\/+$/, '');
+  var dashboardUrl = document.getElementById('fDashboardUrl').value.trim().replace(/\/+$/, '');
+  if (!name || !publicKey) { DevOpsPilot.toast('Name and Public Key are required.', 'error'); return; }
+  if (editingName) {
+    var body = { name: name, publicKey: publicKey, previewUrl: previewUrl, repoPath: repoPath, dashboardUrl: dashboardUrl };
+    if (privateKey) body.privateKey = privateKey;
+    var r = await fetch(API + '/spaces/' + encodeURIComponent(editingName), {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    var data = await r.json();
+    if (data.error) { DevOpsPilot.toast(data.error, 'error'); return; }
+    DevOpsPilot.toast('Space updated.', 'success');
+  } else {
+    if (!privateKey) { DevOpsPilot.toast('Private Key is required for new spaces.', 'error'); return; }
+    var r = await fetch(API + '/spaces', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name, privateKey: privateKey, publicKey: publicKey, previewUrl: previewUrl, repoPath: repoPath, dashboardUrl: dashboardUrl }),
+    });
+    var data = await r.json();
+    if (data.error) { DevOpsPilot.toast(data.error, 'error'); return; }
+    DevOpsPilot.toast('Space added.', 'success');
+  }
+  hideForm();
+  await loadSpaces();
+  notifyParent();
+}
+
+async function setActive(name) {
+  await fetch(API + '/spaces/active', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name }) });
+  var space = spaces.find(function(s) { return s.name === name; });
+  if (space && space.repoPath) {
+    try {
+      var repos = await (await fetch('/api/repos')).json();
+      var norm = space.repoPath.replace(/\\\\/g, '/').replace(/\\/g, '/').replace(/\/+$/, '');
+      for (var rn in repos) {
+        if (repos[rn].replace(/\\\\/g, '/').replace(/\\/g, '/').replace(/\/+$/, '') === norm) {
+          await fetch('/api/ui/context', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ activeRepo: rn }) });
+          break;
+        }
+      }
+    } catch (_) {}
+  }
+  await loadSpaces();
+  notifyParent();
+  DevOpsPilot.toast('Switched to ' + name, 'success');
+}
+
+function editSpace(name) { var s = spaces.find(function(x) { return x.name === name; }); if (s) showForm(s); }
+
+var pendingRemove = null;
+async function removeSpace(name) {
+  pendingRemove = name;
+  var cards = document.querySelectorAll('.space-card');
+  cards.forEach(function(card) {
+    if (card.querySelector('.space-name').textContent === name) {
+      card.insertAdjacentHTML('beforeend',
+        '<div class="remove-confirm" style="display:flex;gap:6px;align-items:center;margin-left:8px;">'
+        + '<span style="font-size:10px;color:var(--red);">Remove?</span>'
+        + '<button onclick="confirmRemove()" style="padding:2px 8px;font-size:10px;background:var(--red);color:var(--crust);border:none;border-radius:var(--radius,6px);cursor:pointer;">Yes</button>'
+        + '<button onclick="cancelRemove()" style="padding:2px 8px;font-size:10px;background:var(--surface1);color:var(--text);border:none;border-radius:var(--radius,6px);cursor:pointer;">No</button>'
+        + '</div>');
+    }
+  });
+}
+async function confirmRemove() {
+  if (!pendingRemove) return;
+  await fetch(API + '/spaces/' + encodeURIComponent(pendingRemove), { method: 'DELETE' });
+  pendingRemove = null; await loadSpaces(); notifyParent(); DevOpsPilot.toast('Space removed.', 'success');
+}
+function cancelRemove() { pendingRemove = null; document.querySelectorAll('.remove-confirm').forEach(function(el) { el.remove(); }); }
+
+function togglePw(id) { var el = document.getElementById(id); el.type = el.type === 'password' ? 'text' : 'password'; }
+
+function notifyParent() {
+  try { window.parent.postMessage({ __devopsPilot: true, type: 'configChanged', plugin: 'builderio' }, '*'); } catch (_) {}
+}
+
+function resizeFrame() {
+  try { var h = Math.max(320, document.body.scrollHeight + 24); if (window.frameElement) window.frameElement.style.height = h + 'px'; } catch (_) {}
+}
+new MutationObserver(resizeFrame).observe(document.body, { childList: true, subtree: true, attributes: true });
+
+loadSpaces();
+</script>
+</body>
+</html>
