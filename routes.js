@@ -64,6 +64,24 @@ function isConfigured(cfg) {
   return !!(cfg && cfg.privateKey && cfg.publicKey);
 }
 
+function resolvePreviewUrl(cfg) {
+  var env = cfg.activeEnv || 'production';
+  if (env === 'local' && cfg.localPort) return 'http://localhost:' + cfg.localPort;
+  if (env === 'staging' && cfg.stagingUrl) return cfg.stagingUrl;
+  if (cfg.prodUrl) return cfg.prodUrl;
+  return cfg.previewUrl || '';
+}
+
+function getEnvFields(s) {
+  return {
+    prodUrl: s.prodUrl || s.previewUrl || '',
+    stagingUrl: s.stagingUrl || '',
+    localPort: s.localPort || '',
+    activeEnv: s.activeEnv || 'production',
+    previewUrl: resolvePreviewUrl(s),
+  };
+}
+
 // -- HTTP helpers -------------------------------------------------------------
 
 function httpsJson(urlStr, options, body) {
@@ -123,7 +141,7 @@ module.exports = function ({ addPrefixRoute, json, readBody }) {
           configured: isConfigured(cfg),
           publicKey: cfg.publicKey || '',
           privateKeySet: !!cfg.privateKey,
-          previewUrl: cfg.previewUrl || '',
+          ...getEnvFields(cfg),
           repoPath: cfg.repoPath || '',
           dashboardUrl: cfg.dashboardUrl || '',
         });
@@ -161,7 +179,7 @@ module.exports = function ({ addPrefixRoute, json, readBody }) {
             name: s.name,
             publicKey: s.publicKey || '',
             privateKeySet: !!s.privateKey,
-            previewUrl: s.previewUrl || '',
+            ...getEnvFields(s),
             repoPath: s.repoPath || '',
             dashboardUrl: s.dashboardUrl || '',
           })),
@@ -183,7 +201,10 @@ module.exports = function ({ addPrefixRoute, json, readBody }) {
           name,
           privateKey: String(body.privateKey),
           publicKey: String(body.publicKey).trim(),
-          previewUrl: body.previewUrl ? String(body.previewUrl).trim().replace(/\/+$/, '') : '',
+          prodUrl: body.prodUrl ? String(body.prodUrl).trim().replace(/\/+$/, '') : '',
+          stagingUrl: body.stagingUrl ? String(body.stagingUrl).trim().replace(/\/+$/, '') : '',
+          localPort: body.localPort ? String(body.localPort).trim() : '',
+          activeEnv: 'production',
           repoPath: body.repoPath ? String(body.repoPath).trim().replace(/\/+$/, '') : '',
           dashboardUrl: body.dashboardUrl ? String(body.dashboardUrl).trim().replace(/\/+$/, '') : '',
         });
@@ -219,7 +240,10 @@ module.exports = function ({ addPrefixRoute, json, readBody }) {
         }
         if (body.privateKey !== undefined) all.spaces[idx].privateKey = String(body.privateKey);
         if (body.publicKey !== undefined) all.spaces[idx].publicKey = String(body.publicKey).trim();
-        if (body.previewUrl !== undefined) all.spaces[idx].previewUrl = String(body.previewUrl).trim().replace(/\/+$/, '');
+        if (body.prodUrl !== undefined) all.spaces[idx].prodUrl = String(body.prodUrl).trim().replace(/\/+$/, '');
+        if (body.stagingUrl !== undefined) all.spaces[idx].stagingUrl = String(body.stagingUrl).trim().replace(/\/+$/, '');
+        if (body.localPort !== undefined) all.spaces[idx].localPort = String(body.localPort).trim();
+        if (body.activeEnv !== undefined) all.spaces[idx].activeEnv = String(body.activeEnv);
         if (body.repoPath !== undefined) all.spaces[idx].repoPath = String(body.repoPath).trim().replace(/\/+$/, '');
         if (body.dashboardUrl !== undefined) all.spaces[idx].dashboardUrl = String(body.dashboardUrl).trim().replace(/\/+$/, '');
         saveAllCfg(all);
@@ -235,6 +259,21 @@ module.exports = function ({ addPrefixRoute, json, readBody }) {
         if (all.activeSpace === spaceName) all.activeSpace = all.spaces.length ? all.spaces[0].name : '';
         saveAllCfg(all);
         return json(res, { ok: true, activeSpace: all.activeSpace });
+      }
+
+      // -- Environment Switch ---------------------------------------------------
+      if (subpath === '/env' && method === 'POST') {
+        const body = await readBody(req);
+        if (!body.env || !['production', 'staging', 'local'].includes(body.env)) {
+          return json(res, { error: 'env must be production, staging, or local' }, 400);
+        }
+        const all = readAllCfg();
+        const space = getActiveSpace(all);
+        if (!space) return json(res, { error: 'No active space' }, 400);
+        const idx = all.spaces.findIndex(s => s.name === space.name);
+        if (idx >= 0) all.spaces[idx].activeEnv = body.env;
+        saveAllCfg(all);
+        return json(res, { ok: true, activeEnv: body.env, previewUrl: resolvePreviewUrl(all.spaces[idx]) });
       }
 
       // -- Models ---------------------------------------------------------------
@@ -441,7 +480,7 @@ module.exports = function ({ addPrefixRoute, json, readBody }) {
 
         return json(res, {
           publicKey: cfg.publicKey,
-          previewUrl: cfg.previewUrl || '',
+          ...getEnvFields(cfg),
           repoPath: cfg.repoPath || '',
           dashboardUrl: cfg.dashboardUrl || '',
           models: modelStats,

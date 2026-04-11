@@ -98,9 +98,18 @@
     <div class="hint">Found in Builder.io > Settings > Space.</div>
   </div>
   <div class="field">
-    <label>Preview URL <span style="font-weight:400;color:var(--overlay1);">(optional)</span></label>
-    <input id="fPreviewUrl" type="url" placeholder="https://mysite.com or http://localhost:3000">
-    <div class="hint">Frontend URL for live preview. Page path is appended automatically.</div>
+    <label>Production URL</label>
+    <input id="fProdUrl" type="url" placeholder="https://mysite.com">
+    <div class="hint">Live production site URL.</div>
+  </div>
+  <div class="field">
+    <label>Staging URL <span style="font-weight:400;color:var(--overlay1);">(optional)</span></label>
+    <input id="fStagingUrl" type="url" placeholder="https://staging.mysite.com">
+  </div>
+  <div class="field">
+    <label>Local Port <span style="font-weight:400;color:var(--overlay1);">(optional)</span></label>
+    <input id="fLocalPort" type="text" placeholder="3000">
+    <div class="hint">Local dev server port. Used as http://localhost:PORT.</div>
   </div>
   <div class="field">
     <label>Local Repo <span style="font-weight:400;color:var(--overlay1);">(optional)</span></label>
@@ -164,7 +173,9 @@ function showForm(space) {
   document.getElementById('formTitle').textContent = space ? 'Edit Space' : 'Add Space';
   document.getElementById('fName').value = space ? space.name : '';
   document.getElementById('fPublicKey').value = space ? space.publicKey : '';
-  document.getElementById('fPreviewUrl').value = space ? (space.previewUrl || '') : '';
+  document.getElementById('fProdUrl').value = space ? (space.prodUrl || space.previewUrl || '') : '';
+  document.getElementById('fStagingUrl').value = space ? (space.stagingUrl || '') : '';
+  document.getElementById('fLocalPort').value = space ? (space.localPort || '') : '';
   document.getElementById('fDashboardUrl').value = space ? (space.dashboardUrl || '') : '';
   document.getElementById('fPrivateKey').value = '';
   document.getElementById('fPrivateKey').placeholder = space ? '(unchanged)' : 'bpk-...';
@@ -188,12 +199,14 @@ async function saveForm() {
   var name = document.getElementById('fName').value.trim();
   var publicKey = document.getElementById('fPublicKey').value.trim();
   var privateKey = document.getElementById('fPrivateKey').value;
-  var previewUrl = document.getElementById('fPreviewUrl').value.trim().replace(/\/+$/, '');
+  var prodUrl = document.getElementById('fProdUrl').value.trim().replace(/\/+$/, '');
+  var stagingUrl = document.getElementById('fStagingUrl').value.trim().replace(/\/+$/, '');
+  var localPort = document.getElementById('fLocalPort').value.trim();
   var repoPath = document.getElementById('fRepoPath').value.trim().replace(/\/+$/, '');
   var dashboardUrl = document.getElementById('fDashboardUrl').value.trim().replace(/\/+$/, '');
   if (!name || !publicKey) { DevOpsPilot.toast('Name and Public Key are required.', 'error'); return; }
   if (editingName) {
-    var body = { name: name, publicKey: publicKey, previewUrl: previewUrl, repoPath: repoPath, dashboardUrl: dashboardUrl };
+    var body = { name: name, publicKey: publicKey, prodUrl: prodUrl, stagingUrl: stagingUrl, localPort: localPort, repoPath: repoPath, dashboardUrl: dashboardUrl };
     if (privateKey) body.privateKey = privateKey;
     var r = await fetch(API + '/spaces/' + encodeURIComponent(editingName), {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
@@ -205,7 +218,7 @@ async function saveForm() {
     if (!privateKey) { DevOpsPilot.toast('Private Key is required for new spaces.', 'error'); return; }
     var r = await fetch(API + '/spaces', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: name, privateKey: privateKey, publicKey: publicKey, previewUrl: previewUrl, repoPath: repoPath, dashboardUrl: dashboardUrl }),
+      body: JSON.stringify({ name: name, privateKey: privateKey, publicKey: publicKey, prodUrl: prodUrl, stagingUrl: stagingUrl, localPort: localPort, repoPath: repoPath, dashboardUrl: dashboardUrl }),
     });
     var data = await r.json();
     if (data.error) { DevOpsPilot.toast(data.error, 'error'); return; }
