@@ -55,30 +55,106 @@ function getActiveSpace(all) {
   return active || a.spaces[0] || null;
 }
 
+function slugifyEnvId(s) {
+  return String(s || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'env';
+}
+
+// Return the space's environments list, migrating legacy fields if needed.
+// Each entry: { id, label, url, localPort, publicKey, privateKey }
+function normalizeEnvironments(s) {
+  if (Array.isArray(s.environments) && s.environments.length) {
+    return s.environments.map(function (e) {
+      var label = e.label || e.id || 'Env';
+      return {
+        id: e.id || slugifyEnvId(label),
+        label: label,
+        url: e.url || '',
+        localPort: e.localPort || '',
+        publicKey: e.publicKey || '',
+        privateKey: e.privateKey || '',
+      };
+    });
+  }
+  var out = [];
+  var prodUrl = s.prodUrl || s.previewUrl || '';
+  var pk = s.publicKey || '';
+  var sk = s.privateKey || '';
+  if (prodUrl) out.push({ id: 'production', label: 'Production', url: prodUrl, localPort: '', publicKey: pk, privateKey: sk });
+  if (s.stagingUrl) out.push({ id: 'staging', label: 'Staging', url: s.stagingUrl, localPort: '', publicKey: pk, privateKey: sk });
+  if (s.localPort) out.push({ id: 'local', label: 'Local', url: '', localPort: s.localPort, publicKey: pk, privateKey: sk });
+  if (!out.length) out.push({ id: 'production', label: 'Production', url: '', localPort: '', publicKey: pk, privateKey: sk });
+  return out;
+}
+
+function sanitizeEnvironments(raw) {
+  if (!Array.isArray(raw)) return null;
+  var seen = {};
+  var out = [];
+  for (var i = 0; i < raw.length; i++) {
+    var e = raw[i] || {};
+    var label = String(e.label || '').trim();
+    if (!label) continue;
+    var id = String(e.id || '').trim() || slugifyEnvId(label);
+    var base = id, n = 2;
+    while (seen[id]) { id = base + '-' + n++; }
+    seen[id] = true;
+    out.push({
+      id: id,
+      label: label,
+      url: e.url ? String(e.url).trim().replace(/\/+$/, '') : '',
+      localPort: e.localPort ? String(e.localPort).trim() : '',
+      publicKey: e.publicKey ? String(e.publicKey).trim() : '',
+      privateKey: e.privateKey !== undefined ? String(e.privateKey) : '',
+    });
+  }
+  return out;
+}
+
+function getActiveEnv(s) {
+  var envs = normalizeEnvironments(s);
+  return envs.find(function (e) { return e.id === s.activeEnv; }) || envs[0];
+}
+
+function resolveEnvUrl(env) {
+  if (!env) return '';
+  if (env.localPort) return 'http://localhost:' + env.localPort;
+  return env.url || '';
+}
+
+function resolvePreviewUrl(cfg) {
+  return resolveEnvUrl(getActiveEnv(cfg));
+}
+
+// Return the active space merged with the active env's credentials so downstream
+// code can read cfg.privateKey / cfg.publicKey without knowing about envs.
 function getCfg() {
   const space = getActiveSpace();
-  return space || { privateKey: '', publicKey: '' };
+  if (!space) return { privateKey: '', publicKey: '' };
+  const env = getActiveEnv(space);
+  return Object.assign({}, space, {
+    publicKey: (env && env.publicKey) || space.publicKey || '',
+    privateKey: (env && env.privateKey) || space.privateKey || '',
+  });
 }
 
 function isConfigured(cfg) {
   return !!(cfg && cfg.privateKey && cfg.publicKey);
 }
 
-function resolvePreviewUrl(cfg) {
-  var env = cfg.activeEnv || 'production';
-  if (env === 'local' && cfg.localPort) return 'http://localhost:' + cfg.localPort;
-  if (env === 'staging' && cfg.stagingUrl) return cfg.stagingUrl;
-  if (cfg.prodUrl) return cfg.prodUrl;
-  return cfg.previewUrl || '';
-}
-
 function getEnvFields(s) {
+  var envs = normalizeEnvironments(s);
+  var active = envs.find(function (e) { return e.id === s.activeEnv; }) || envs[0];
   return {
-    prodUrl: s.prodUrl || s.previewUrl || '',
-    stagingUrl: s.stagingUrl || '',
-    localPort: s.localPort || '',
-    activeEnv: s.activeEnv || 'production',
-    previewUrl: resolvePreviewUrl(s),
+    environments: envs.map(function (e) {
+      return {
+        id: e.id, label: e.label, url: e.url, localPort: e.localPort,
+        publicKey: e.publicKey || '',
+        privateKey: e.privateKey || '',
+        privateKeySet: !!e.privateKey,
+      };
+    }),
+    activeEnv: active ? active.id : '',
+    previewUrl: resolveEnvUrl(active),
   };
 }
 
@@ -148,14 +224,19 @@ module.exports = function ({ addPrefixRoute, json, readBody }) {
       }
 
       if (subpath === '/config' && method === 'POST') {
+        // Write API keys to the active environment of the active space.
         const body = await readBody(req);
         const all = readAllCfg();
         const space = getActiveSpace(all);
         if (!space) return json(res, { error: 'No active space' }, 400);
-        if (body.privateKey !== undefined) space.privateKey = body.privateKey;
-        if (body.publicKey !== undefined) space.publicKey = body.publicKey;
         const idx = all.spaces.findIndex(s => s.name === space.name);
-        if (idx >= 0) all.spaces[idx] = space;
+        const envs = normalizeEnvironments(all.spaces[idx]);
+        const envIdx = envs.findIndex(function (e) { return e.id === all.spaces[idx].activeEnv; });
+        const target = envs[envIdx >= 0 ? envIdx : 0];
+        if (body.privateKey !== undefined) target.privateKey = String(body.privateKey);
+        if (body.publicKey !== undefined) target.publicKey = String(body.publicKey).trim();
+        all.spaces[idx].environments = envs;
+        all.spaces[idx].activeEnv = target.id;
         saveAllCfg(all);
         return json(res, { ok: true });
       }
@@ -177,8 +258,6 @@ module.exports = function ({ addPrefixRoute, json, readBody }) {
         return json(res, {
           spaces: all.spaces.map(s => ({
             name: s.name,
-            publicKey: s.publicKey || '',
-            privateKeySet: !!s.privateKey,
             ...getEnvFields(s),
             repoPath: s.repoPath || '',
             dashboardUrl: s.dashboardUrl || '',
@@ -189,8 +268,13 @@ module.exports = function ({ addPrefixRoute, json, readBody }) {
 
       if (subpath === '/spaces' && method === 'POST') {
         const body = await readBody(req);
-        if (!body.name || !body.privateKey || !body.publicKey) {
-          return json(res, { error: 'name, privateKey, and publicKey are all required.' }, 400);
+        if (!body.name) return json(res, { error: 'name is required.' }, 400);
+        const envs = sanitizeEnvironments(body.environments);
+        if (!envs || !envs.length) {
+          return json(res, { error: 'At least one environment with a public and private key is required.' }, 400);
+        }
+        if (!envs[0].publicKey || !envs[0].privateKey) {
+          return json(res, { error: 'The first environment must include both a public and private key.' }, 400);
         }
         const all = readAllCfg();
         const name = String(body.name).trim();
@@ -199,12 +283,8 @@ module.exports = function ({ addPrefixRoute, json, readBody }) {
         }
         all.spaces.push({
           name,
-          privateKey: String(body.privateKey),
-          publicKey: String(body.publicKey).trim(),
-          prodUrl: body.prodUrl ? String(body.prodUrl).trim().replace(/\/+$/, '') : '',
-          stagingUrl: body.stagingUrl ? String(body.stagingUrl).trim().replace(/\/+$/, '') : '',
-          localPort: body.localPort ? String(body.localPort).trim() : '',
-          activeEnv: 'production',
+          environments: envs,
+          activeEnv: envs[0].id,
           repoPath: body.repoPath ? String(body.repoPath).trim().replace(/\/+$/, '') : '',
           dashboardUrl: body.dashboardUrl ? String(body.dashboardUrl).trim().replace(/\/+$/, '') : '',
         });
@@ -238,11 +318,30 @@ module.exports = function ({ addPrefixRoute, json, readBody }) {
           if (all.activeSpace === spaceName) all.activeSpace = newName;
           all.spaces[idx].name = newName;
         }
-        if (body.privateKey !== undefined) all.spaces[idx].privateKey = String(body.privateKey);
-        if (body.publicKey !== undefined) all.spaces[idx].publicKey = String(body.publicKey).trim();
-        if (body.prodUrl !== undefined) all.spaces[idx].prodUrl = String(body.prodUrl).trim().replace(/\/+$/, '');
-        if (body.stagingUrl !== undefined) all.spaces[idx].stagingUrl = String(body.stagingUrl).trim().replace(/\/+$/, '');
-        if (body.localPort !== undefined) all.spaces[idx].localPort = String(body.localPort).trim();
+        if (body.environments !== undefined) {
+          const clean = sanitizeEnvironments(body.environments);
+          if (clean && clean.length) {
+            // Preserve existing privateKey on an env when the form submits an empty string
+            // (the form sends empty to mean "unchanged"). Match by id against the existing list.
+            const existing = normalizeEnvironments(all.spaces[idx]);
+            clean.forEach(function (e) {
+              if (!e.privateKey) {
+                var prev = existing.find(function (x) { return x.id === e.id; });
+                if (prev && prev.privateKey) e.privateKey = prev.privateKey;
+              }
+            });
+            all.spaces[idx].environments = clean;
+            delete all.spaces[idx].prodUrl;
+            delete all.spaces[idx].stagingUrl;
+            delete all.spaces[idx].localPort;
+            delete all.spaces[idx].previewUrl;
+            delete all.spaces[idx].publicKey;
+            delete all.spaces[idx].privateKey;
+            if (!clean.find(function (e) { return e.id === all.spaces[idx].activeEnv; })) {
+              all.spaces[idx].activeEnv = clean[0].id;
+            }
+          }
+        }
         if (body.activeEnv !== undefined) all.spaces[idx].activeEnv = String(body.activeEnv);
         if (body.repoPath !== undefined) all.spaces[idx].repoPath = String(body.repoPath).trim().replace(/\/+$/, '');
         if (body.dashboardUrl !== undefined) all.spaces[idx].dashboardUrl = String(body.dashboardUrl).trim().replace(/\/+$/, '');
@@ -264,14 +363,16 @@ module.exports = function ({ addPrefixRoute, json, readBody }) {
       // -- Environment Switch ---------------------------------------------------
       if (subpath === '/env' && method === 'POST') {
         const body = await readBody(req);
-        if (!body.env || !['production', 'staging', 'local'].includes(body.env)) {
-          return json(res, { error: 'env must be production, staging, or local' }, 400);
-        }
+        if (!body.env) return json(res, { error: 'env is required' }, 400);
         const all = readAllCfg();
         const space = getActiveSpace(all);
         if (!space) return json(res, { error: 'No active space' }, 400);
         const idx = all.spaces.findIndex(s => s.name === space.name);
-        if (idx >= 0) all.spaces[idx].activeEnv = body.env;
+        const envs = normalizeEnvironments(all.spaces[idx]);
+        if (!envs.find(function (e) { return e.id === body.env; })) {
+          return json(res, { error: 'Unknown env: ' + body.env }, 400);
+        }
+        all.spaces[idx].activeEnv = body.env;
         saveAllCfg(all);
         return json(res, { ok: true, activeEnv: body.env, previewUrl: resolvePreviewUrl(all.spaces[idx]) });
       }

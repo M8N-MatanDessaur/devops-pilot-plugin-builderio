@@ -183,11 +183,7 @@
   <span class="conn-dot" id="connDot"></span>
   <select class="space-select" id="spaceSelect" onchange="switchSpace(this.value)"></select>
   <span class="spacer"></span>
-  <select class="space-select" id="envSelect" style="display:none;max-width:120px;" onchange="switchEnv(this.value)">
-    <option value="production">Production</option>
-    <option value="staging">Staging</option>
-    <option value="local">Local</option>
-  </select>
+  <select class="space-select" id="envSelect" style="display:none;" onchange="switchEnv(this.value)"></select>
   <button class="btn sm" id="dashboardBtn" style="display:none;" onclick="openDashboard()">Open Builder</button>
   <button class="btn sm" onclick="refresh()">Refresh</button>
 </div>
@@ -230,7 +226,7 @@ async function refresh(){if(state.section&&state.section.kind==='home'){await lo
 async function loadSpaceSelector(){try{var r=await api('GET','/spaces');state.spaces=r.spaces||[];state.activeSpace=r.activeSpace||'';}catch(_){state.spaces=[];state.activeSpace='';}var sel=document.getElementById('spaceSelect');if(!state.spaces.length){sel.innerHTML='<option value="">-- not configured --</option>';return;}sel.innerHTML=state.spaces.map(function(s){return'<option value="'+esc(s.name)+'"'+(s.name===state.activeSpace?' selected':'')+'>'+esc(s.name)+'</option>';}).join('');}
 async function switchSpace(name){if(!name)return;await api('POST','/spaces/active',{name:name});state.activeSpace=name;var space=state.spaces.find(function(s){return s.name===name;});if(space&&space.repoPath){try{var repos=await(await fetch('/api/repos')).json();var norm=space.repoPath.replace(/\\\\/g,'/').replace(/\\/g,'/').replace(/\/+$/,'');for(var rn in repos){if(repos[rn].replace(/\\\\/g,'/').replace(/\\/g,'/').replace(/\/+$/,'')===norm){await fetch('/api/ui/context',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({activeRepo:rn})});break;}}}catch(_){}}await init();}
 
-async function loadHealth(){var dot=document.getElementById('connDot');dot.className='conn-dot pending';var h=await api('GET','/health');if(h.error){dot.className='conn-dot err';state.health=null;state.models=[];return;}dot.className='conn-dot ok';state.health=h;state.models=h.models||[];var btn=document.getElementById('dashboardBtn');if(btn)btn.style.display=h.dashboardUrl?'':'none';var envSel=document.getElementById('envSelect');if(envSel){var hasEnvs=h.prodUrl||h.stagingUrl||h.localPort;envSel.style.display=hasEnvs?'':'none';envSel.value=h.activeEnv||'production';}}
+async function loadHealth(){var dot=document.getElementById('connDot');dot.className='conn-dot pending';var h=await api('GET','/health');if(h.error){dot.className='conn-dot err';state.health=null;state.models=[];return;}dot.className='conn-dot ok';state.health=h;state.models=h.models||[];var btn=document.getElementById('dashboardBtn');if(btn)btn.style.display=h.dashboardUrl?'':'none';var envSel=document.getElementById('envSelect');if(envSel){var envs=Array.isArray(h.environments)?h.environments:[];if(envs.length>1){envSel.innerHTML=envs.map(function(e){return'<option value="'+esc(e.id)+'">'+esc(e.label)+'</option>';}).join('');envSel.value=h.activeEnv||envs[0].id;envSel.style.display='';}else{envSel.style.display='none';}}}
 async function switchEnv(env){showMiddleLoader('Switching to '+env+'...');await api('POST','/env',{env:env});await loadHealth();if(state.section&&state.section.kind==='home'){renderHome();}else if(state.section){document.getElementById('homeView').style.display='none';document.getElementById('contentCol').style.display='flex';await loadSection();}else{renderHome();}}
 function openDashboard(){var url=state.health&&state.health.dashboardUrl;if(url)window.open(url,'_blank');}
 

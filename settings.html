@@ -62,6 +62,36 @@
     cursor: pointer; color: var(--subtext0); display: flex; align-items: center;
   }
   .pw-toggle:hover { color: var(--accent); }
+
+  /* -- Environments editor ---------------------------------- */
+  .env-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 6px; }
+  .env-row {
+    display: grid; grid-template-columns: 1fr auto;
+    gap: 6px; padding: 8px; background: var(--base);
+    border: 1px solid var(--surface1); border-radius: var(--radius, 6px);
+  }
+  .env-row-header { display: flex; gap: 6px; align-items: center; }
+  .env-row-header input.env-label { flex: 1; }
+  .env-row-fields {
+    grid-column: 1 / -1;
+    display: grid; grid-template-columns: 1fr 90px; gap: 6px;
+  }
+  .env-row-fields input { width: 100%; }
+  .env-keys { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; grid-column: 1 / -1; }
+  .env-row input {
+    padding: 6px 8px; background: var(--surface0);
+    border: 1px solid var(--surface1); border-radius: var(--radius, 6px);
+    color: var(--text); font: 12px var(--font-ui); outline: none;
+  }
+  .env-row input:focus { border-color: var(--accent); }
+  .env-remove {
+    padding: 5px 10px; font-size: 11px; background: transparent;
+    border: 1px solid var(--surface1); border-radius: var(--radius, 6px);
+    color: var(--subtext1); cursor: pointer; font-family: var(--font-ui);
+    align-self: start;
+  }
+  .env-remove:hover { border-color: var(--red); color: var(--red); }
+  .env-add-btn { margin-top: 4px; font-size: 11px; padding: 4px 10px; }
 </style>
 </head>
 <body>
@@ -83,33 +113,10 @@
     <input id="fName" type="text" placeholder="My Builder Space">
   </div>
   <div class="field">
-    <label>Private API Key</label>
-    <div class="pw-wrap">
-      <input id="fPrivateKey" type="password" placeholder="bpk-...">
-      <button type="button" class="pw-toggle" onclick="togglePw('fPrivateKey')">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
-      </button>
-    </div>
-    <div class="hint">Found in Builder.io > Settings > Space. Starts with bpk-.</div>
-  </div>
-  <div class="field">
-    <label>Public API Key</label>
-    <input id="fPublicKey" type="text" placeholder="Your public API key">
-    <div class="hint">Found in Builder.io > Settings > Space.</div>
-  </div>
-  <div class="field">
-    <label>Production URL</label>
-    <input id="fProdUrl" type="url" placeholder="https://mysite.com">
-    <div class="hint">Live production site URL.</div>
-  </div>
-  <div class="field">
-    <label>Staging URL <span style="font-weight:400;color:var(--overlay1);">(optional)</span></label>
-    <input id="fStagingUrl" type="url" placeholder="https://staging.mysite.com">
-  </div>
-  <div class="field">
-    <label>Local Port <span style="font-weight:400;color:var(--overlay1);">(optional)</span></label>
-    <input id="fLocalPort" type="text" placeholder="3000">
-    <div class="hint">Local dev server port. Used as http://localhost:PORT.</div>
+    <label>Environments</label>
+    <div id="envList" class="env-list"></div>
+    <button type="button" class="btn env-add-btn" onclick="addEnvRow()">+ Add Environment</button>
+    <div class="hint">Each environment has its own Builder.io private and public keys. Switching env in the dashboard will swap the active credentials. Leave private key blank on edit to keep the existing value.</div>
   </div>
   <div class="field">
     <label>Local Repo <span style="font-weight:400;color:var(--overlay1);">(optional)</span></label>
@@ -154,7 +161,8 @@ function render() {
   if (!spaces.length) { el.innerHTML = '<div class="empty-msg">No spaces configured. Click "+ Add Space" to get started.</div>'; return; }
   el.innerHTML = spaces.map(function(s) {
     var isActive = s.name === activeSpace;
-    var meta = s.publicKey ? s.publicKey.substring(0, 12) + '...' : '';
+    var envCount = (s.environments || []).length;
+    var meta = envCount + ' environment' + (envCount === 1 ? '' : 's');
     if (s.previewUrl) meta += ' - ' + s.previewUrl;
     return '<div class="space-card' + (isActive ? ' active' : '') + '">'
       + '<div class="dot"></div><div class="space-info">'
@@ -172,13 +180,8 @@ function showForm(space) {
   editingName = space ? space.name : null;
   document.getElementById('formTitle').textContent = space ? 'Edit Space' : 'Add Space';
   document.getElementById('fName').value = space ? space.name : '';
-  document.getElementById('fPublicKey').value = space ? space.publicKey : '';
-  document.getElementById('fProdUrl').value = space ? (space.prodUrl || space.previewUrl || '') : '';
-  document.getElementById('fStagingUrl').value = space ? (space.stagingUrl || '') : '';
-  document.getElementById('fLocalPort').value = space ? (space.localPort || '') : '';
   document.getElementById('fDashboardUrl').value = space ? (space.dashboardUrl || '') : '';
-  document.getElementById('fPrivateKey').value = '';
-  document.getElementById('fPrivateKey').placeholder = space ? '(unchanged)' : 'bpk-...';
+  renderEnvEditor(space ? (space.environments || []) : [], !!editingName);
   // Populate repo dropdown
   var sel = document.getElementById('fRepoPath');
   var currentRepo = space ? (space.repoPath || '') : '';
@@ -195,35 +198,78 @@ function showForm(space) {
 
 function hideForm() { document.getElementById('formArea').style.display = 'none'; document.getElementById('addBtn').style.display = ''; editingName = null; }
 
+function renderEnvEditor(envs, isEdit) {
+  var list = document.getElementById('envList');
+  list.innerHTML = '';
+  if (!envs || !envs.length) envs = [{ label: 'Production', url: '', localPort: '', publicKey: '', privateKeySet: false }];
+  envs.forEach(function (e) { list.appendChild(buildEnvRow(e, isEdit)); });
+}
+function buildEnvRow(e, isEdit) {
+  var row = document.createElement('div');
+  row.className = 'env-row';
+  row.innerHTML =
+    '<div class="env-row-header">'
+    + '<input class="env-label" type="text" placeholder="Environment name (e.g. Production)" value="' + esc(e.label || '') + '">'
+    + '<input class="env-id" type="hidden" value="' + esc(e.id || '') + '">'
+    + '</div>'
+    + '<button type="button" class="env-remove" onclick="this.closest(\'.env-row\').remove()">Remove</button>'
+    + '<div class="env-row-fields">'
+    + '<input class="env-url" type="url" placeholder="https://mysite.com" value="' + esc(e.url || '') + '">'
+    + '<input class="env-port" type="text" placeholder="Port" value="' + esc(e.localPort || '') + '">'
+    + '</div>'
+    + '<div class="env-keys">'
+    + '<input class="env-public" type="text" placeholder="Public API key" value="' + esc(e.publicKey || '') + '">'
+    + '<div class="pw-wrap">'
+    + '<input class="env-private" type="password" placeholder="bpk-..." value="' + esc(e.privateKey || '') + '">'
+    + '<button type="button" class="pw-toggle" onclick="togglePwEl(this.previousElementSibling)" title="Show/hide">'
+    + '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>'
+    + '</button>'
+    + '</div>'
+    + '</div>';
+  return row;
+}
+function togglePwEl(el) { el.type = el.type === 'password' ? 'text' : 'password'; }
+function addEnvRow() {
+  document.getElementById('envList').appendChild(buildEnvRow({}, false));
+}
+function collectEnvs() {
+  var rows = document.querySelectorAll('#envList .env-row');
+  var out = [];
+  rows.forEach(function (r) {
+    var label = r.querySelector('.env-label').value.trim();
+    if (!label) return;
+    out.push({
+      id: r.querySelector('.env-id').value.trim() || undefined,
+      label: label,
+      url: r.querySelector('.env-url').value.trim().replace(/\/+$/, ''),
+      localPort: r.querySelector('.env-port').value.trim(),
+      publicKey: r.querySelector('.env-public').value.trim(),
+      privateKey: r.querySelector('.env-private').value,
+    });
+  });
+  return out;
+}
+
 async function saveForm() {
   var name = document.getElementById('fName').value.trim();
-  var publicKey = document.getElementById('fPublicKey').value.trim();
-  var privateKey = document.getElementById('fPrivateKey').value;
-  var prodUrl = document.getElementById('fProdUrl').value.trim().replace(/\/+$/, '');
-  var stagingUrl = document.getElementById('fStagingUrl').value.trim().replace(/\/+$/, '');
-  var localPort = document.getElementById('fLocalPort').value.trim();
+  var environments = collectEnvs();
   var repoPath = document.getElementById('fRepoPath').value.trim().replace(/\/+$/, '');
   var dashboardUrl = document.getElementById('fDashboardUrl').value.trim().replace(/\/+$/, '');
-  if (!name || !publicKey) { DevOpsPilot.toast('Name and Public Key are required.', 'error'); return; }
-  if (editingName) {
-    var body = { name: name, publicKey: publicKey, prodUrl: prodUrl, stagingUrl: stagingUrl, localPort: localPort, repoPath: repoPath, dashboardUrl: dashboardUrl };
-    if (privateKey) body.privateKey = privateKey;
-    var r = await fetch(API + '/spaces/' + encodeURIComponent(editingName), {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-    });
-    var data = await r.json();
-    if (data.error) { DevOpsPilot.toast(data.error, 'error'); return; }
-    DevOpsPilot.toast('Space updated.', 'success');
-  } else {
-    if (!privateKey) { DevOpsPilot.toast('Private Key is required for new spaces.', 'error'); return; }
-    var r = await fetch(API + '/spaces', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: name, privateKey: privateKey, publicKey: publicKey, prodUrl: prodUrl, stagingUrl: stagingUrl, localPort: localPort, repoPath: repoPath, dashboardUrl: dashboardUrl }),
-    });
-    var data = await r.json();
-    if (data.error) { DevOpsPilot.toast(data.error, 'error'); return; }
-    DevOpsPilot.toast('Space added.', 'success');
-  }
+  if (!name) { DevOpsPilot.toast('Name is required.', 'error'); return; }
+  if (!environments.length) { DevOpsPilot.toast('At least one environment is required.', 'error'); return; }
+  if (!environments[0].publicKey) { DevOpsPilot.toast('Each environment needs a public key (first env: missing).', 'error'); return; }
+  if (!editingName && !environments[0].privateKey) { DevOpsPilot.toast('Private key is required on new spaces.', 'error'); return; }
+
+  var endpoint = editingName ? (API + '/spaces/' + encodeURIComponent(editingName)) : (API + '/spaces');
+  var method = editingName ? 'PUT' : 'POST';
+  var r = await fetch(endpoint, {
+    method: method, headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: name, environments: environments, repoPath: repoPath, dashboardUrl: dashboardUrl }),
+  });
+  var data = await r.json();
+  if (data.error) { DevOpsPilot.toast(data.error, 'error'); return; }
+  DevOpsPilot.toast(editingName ? 'Space updated.' : 'Space added.', 'success');
+
   hideForm();
   await loadSpaces();
   notifyParent();
