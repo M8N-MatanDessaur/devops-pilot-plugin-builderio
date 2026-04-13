@@ -8,6 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const http = require('http');
 const https = require('https');
+const vm = require('vm');
 
 const ADMIN_API = 'https://cdn.builder.io/api/v2/admin';
 const CONTENT_API = 'https://cdn.builder.io/api/v3/content';
@@ -200,6 +201,116 @@ async function contentApi(modelPath, privateKey) {
     method: 'GET',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${privateKey}` },
   });
+}
+
+// -- Preview URL resolution ---------------------------------------------------
+// Uses the model's Advanced Editing URL Logic (editingUrlLogic) when present,
+// falling back to examplePageUrl + targeting.urlPath + locale heuristics.
+function buildTargeting(entry) {
+  const out = {};
+  for (const t of (entry && entry.query) || []) {
+    if (!t || !t.property) continue;
+    out[t.property] = t.value;
+  }
+  return out;
+}
+
+function extractEntryLocales(entry, allLocales) {
+  const q = (entry && entry.query) || [];
+  const localeTarget = q.find(x => x && x.property === 'locale');
+  if (localeTarget) {
+    const v = localeTarget.value;
+    const list = Array.isArray(v) ? v : (v != null ? [v] : []);
+    if (list.length) return list;
+  }
+  const urlTarget = q.find(x => x && x.property === 'urlPath');
+  if (urlTarget && Array.isArray(urlTarget.value) && urlTarget.value.length > 1 && allLocales.length) {
+    return allLocales.slice(0, urlTarget.value.length);
+  }
+  return allLocales.slice();
+}
+
+function runEditingUrlLogic(script, ctx) {
+  const sandbox = {
+    space: ctx.space,
+    locale: ctx.locale,
+    targeting: ctx.targeting,
+    content: ctx.content,
+    state: ctx.state,
+    data: ctx.data,
+    __r: undefined,
+  };
+  const code = `__r = (function(){ ${script}\n })();`;
+  vm.runInNewContext(code, sandbox, { timeout: 500, displayErrors: false });
+  const v = sandbox.__r;
+  return typeof v === 'string' ? v : '';
+}
+
+function fallbackPreviewUrl({ examplePageUrl, pathPrefix, targeting, entry, locale }) {
+  let base = String(examplePageUrl || '').replace(/\/$/, '');
+  if (!base) return '';
+  let slug = '';
+  if (Array.isArray(targeting.urlPath)) slug = targeting.urlPath[0] || '';
+  else if (typeof targeting.urlPath === 'string') slug = targeting.urlPath;
+  else if (entry && entry.data && typeof entry.data.url === 'string') slug = entry.data.url;
+  if (slug && !slug.startsWith('/')) slug = '/' + slug;
+  const prefix = pathPrefix && pathPrefix !== '/' ? (pathPrefix.startsWith('/') ? pathPrefix : '/' + pathPrefix) : '';
+  const localePart = locale ? '/' + locale : '';
+  return base + prefix + localePart + slug;
+}
+
+async function resolvePreviewUrls(cfg, modelName, entryId) {
+  const modelsData = await gql(cfg.privateKey, '{ models { id name examplePageUrl pathPrefix everything } }');
+  const m = (modelsData.models || []).find(x => x.name === modelName);
+  if (!m) return { urls: [], error: 'Model not found' };
+  const script = (m.everything && m.everything.editingUrlLogic) || '';
+  const examplePageUrl = m.examplePageUrl || '';
+  const pathPrefix = m.pathPrefix || '';
+
+  const qp = new URLSearchParams({ apiKey: cfg.publicKey, includeUnpublished: 'true', query: JSON.stringify({ id: entryId }) });
+  const entryRes = await contentApi(`${modelName}?${qp}`, cfg.privateKey);
+  const entry = (entryRes.data.results || [])[0];
+  if (!entry) return { urls: [], error: 'Entry not found' };
+
+  let configuredLocales = [];
+  try {
+    const s = await gql(cfg.privateKey, '{ settings }');
+    const attr = s.settings && s.settings.customTargetingAttributes && s.settings.customTargetingAttributes.locale;
+    if (attr && Array.isArray(attr.enum)) configuredLocales = attr.enum.slice();
+  } catch (_) {}
+
+  const entryLocales = extractEntryLocales(entry, configuredLocales);
+  const targeting = buildTargeting(entry);
+  const spaceObj = { publicKey: cfg.publicKey, id: cfg.publicKey };
+
+  const resolveOne = (locale) => {
+    if (script) {
+      try {
+        const u = runEditingUrlLogic(script, {
+          space: spaceObj, locale, targeting, content: entry, state: entry.data || {}, data: entry.data || {},
+        });
+        if (u) return u;
+      } catch (_) {}
+    }
+    return fallbackPreviewUrl({ examplePageUrl, pathPrefix, targeting, entry, locale });
+  };
+
+  const urls = [];
+  const seen = new Set();
+  if (!entryLocales.length) {
+    const u = resolveOne(null);
+    if (u) urls.push({ locale: null, url: u });
+  } else {
+    for (const loc of entryLocales) {
+      const u = resolveOne(loc);
+      if (!u) continue;
+      const key = loc + '|' + u;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      urls.push({ locale: loc, url: u });
+    }
+  }
+  return { urls, hasScript: !!script, configuredLocales };
 }
 
 // -- Route Registration -------------------------------------------------------
@@ -490,6 +601,21 @@ module.exports = function ({ addPrefixRoute, json, readBody }) {
         const r = await writeApi('PATCH', `${modelName}/${contentId}`, cfg.privateKey, { published: newStatus });
         if (r.status >= 300) return json(res, { error: 'Failed to ' + action }, r.status);
         return json(res, { ok: true, status: newStatus });
+      }
+
+      // GET /preview-url?model=X&entryId=Y
+      if (subpath === '/preview-url' && method === 'GET') {
+        const cfg = getCfg();
+        if (!isConfigured(cfg)) return json(res, { error: 'Not configured' }, 401);
+        const modelName = url.searchParams.get('model');
+        const entryId = url.searchParams.get('entryId');
+        if (!modelName || !entryId) return json(res, { error: 'model and entryId required' }, 400);
+        try {
+          const result = await resolvePreviewUrls(cfg, modelName, entryId);
+          return json(res, result);
+        } catch (e) {
+          return json(res, { error: String(e && e.message || e) }, 500);
+        }
       }
 
       // GET /content/<model>/:id
