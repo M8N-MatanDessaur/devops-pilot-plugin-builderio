@@ -381,7 +381,7 @@ module.exports = function ({ addPrefixRoute, json, readBody }) {
       if (subpath === '/models' && method === 'GET') {
         const cfg = getCfg();
         if (!cfg.privateKey) return json(res, { error: 'Not configured' }, 401);
-        const data = await gql(cfg.privateKey, '{ models { id name kind fields archived previewUrl } }');
+        const data = await gql(cfg.privateKey, '{ models { id name kind fields archived } }');
         const models = (data.models || []).filter(m => !m.archived).map(m => ({
           id: m.id, name: m.name, kind: m.kind,
           fieldCount: Array.isArray(m.fields) ? m.fields.length : 0,
@@ -409,7 +409,7 @@ module.exports = function ({ addPrefixRoute, json, readBody }) {
 
         if (method === 'GET') {
           const data = await gql(cfg.privateKey, `
-            query($id: String!) { model(id: $id) { id name kind fields previewUrl } }
+            query($id: String!) { model(id: $id) { id name kind fields } }
           `, { id: modelId });
           data.model.fields = Array.isArray(data.model.fields) ? data.model.fields : [];
           return json(res, data.model);
@@ -550,7 +550,7 @@ module.exports = function ({ addPrefixRoute, json, readBody }) {
         const cfg = getCfg();
         if (!isConfigured(cfg)) return json(res, { error: 'Not configured' }, 401);
 
-        const data = await gql(cfg.privateKey, '{ models { id name kind fields archived previewUrl } }');
+        const data = await gql(cfg.privateKey, '{ models { id name kind fields archived } }');
         const activeModels = (data.models || []).filter(m => !m.archived);
 
         let totalEntries = 0, totalPub = 0, totalDraft = 0;
@@ -600,7 +600,7 @@ module.exports = function ({ addPrefixRoute, json, readBody }) {
         const cfg = getCfg();
         if (!isConfigured(cfg)) return json(res, { error: 'Not configured' }, 401);
 
-        const data = await gql(cfg.privateKey, '{ models { id name kind fields archived previewUrl } }');
+        const data = await gql(cfg.privateKey, '{ models { id name kind fields archived } }');
         const activeModels = (data.models || []).filter(m => !m.archived);
 
         // Fetch all entries per model (up to 200 each) in parallel
@@ -735,7 +735,7 @@ module.exports = function ({ addPrefixRoute, json, readBody }) {
       if (subpath === '/summary' && method === 'GET') {
         const cfg = getCfg();
         if (!isConfigured(cfg)) return json(res, { error: 'Not configured' }, 401);
-        const data = await gql(cfg.privateKey, '{ models { id name kind fields archived previewUrl } }');
+        const data = await gql(cfg.privateKey, '{ models { id name kind fields archived } }');
         const activeModels = (data.models || []).filter(m => !m.archived);
         const lines = ['Builder.io Space Summary', '=======================', ''];
         let totalEntries = 0, totalPub = 0, totalDraft = 0;
