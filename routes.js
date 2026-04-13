@@ -205,6 +205,12 @@ async function contentApi(modelPath, privateKey) {
 }
 
 // -- Asset helpers ------------------------------------------------------------
+// Matches alt-field names used across Builder entries and custom models.
+// Covers: alt, altText, altTag, imageAlt, imageAltText, imageAltTag, and
+// snake_case/kebab-case variants (e.g. image_alt, image-alt-text).
+const ALT_KEY_RE = /^(image[_-]?)?alt([_-]?(text|tag))?$/i;
+function isAltKey(k) { return typeof k === 'string' && ALT_KEY_RE.test(k); }
+
 function findAltForUrl(obj, targetUrl) {
   // Walk obj; when we find a node containing targetUrl, look for a sibling alt/altText field.
   let found = undefined;
@@ -220,7 +226,7 @@ function findAltForUrl(obj, targetUrl) {
     for (const k of keys) {
       const v = o[k];
       if (typeof v === 'string' && v === targetUrl) {
-        const altKey = keys.find(x => /^alt(Text)?$/i.test(x));
+        const altKey = keys.find(isAltKey);
         if (altKey !== undefined) { found = o[altKey] || ''; return; }
       }
       if (v && typeof v === 'object') walk(v);
@@ -248,7 +254,7 @@ function setAltForUrl(obj, targetUrl, newAlt) {
     for (const k of keys) {
       const v = o[k];
       if (typeof v === 'string' && v === targetUrl) {
-        const altKey = keys.find(x => /^alt(Text)?$/i.test(x));
+        const altKey = keys.find(isAltKey);
         if (altKey !== undefined) { o[altKey] = newAlt; count++; }
       }
       if (v && typeof v === 'object') walk(v);
@@ -901,7 +907,7 @@ module.exports = function ({ addPrefixRoute, json, readBody }) {
           for (const k of keys) {
             const v = obj[k];
             if (typeof v === 'string' && /^https?:\/\/.+\.(png|jpe?g|webp|gif|svg|avif)(\?|$)/i.test(v)) {
-              const altKey = keys.find(x => /^alt(Text)?$/i.test(x));
+              const altKey = keys.find(isAltKey);
               if (altKey !== undefined && !String(obj[altKey] || '').trim()) return true;
               if (altKey === undefined && /image|photo|picture|thumbnail|hero|cover/i.test(k)) return true;
             }
@@ -1008,7 +1014,7 @@ module.exports = function ({ addPrefixRoute, json, readBody }) {
             const v = obj[k];
             if (typeof v === 'string' && /^https?:\/\/.+\.(png|jpe?g|webp|gif|svg|avif)(\?|$)/i.test(v)) {
               // Look for alt sibling
-              const altKey = keys.find(x => /^alt(Text)?$/i.test(x));
+              const altKey = keys.find(isAltKey);
               if (altKey !== undefined && !String(obj[altKey] || '').trim()) {
                 out.push({ path: path + '.' + k, image: v });
               } else if (altKey === undefined && /image|photo|picture|thumbnail|hero|cover/i.test(k)) {
