@@ -66,6 +66,12 @@ powershell.exe -ExecutionPolicy Bypass -NoProfile -Command "./dashboard/plugins/
 | `Get-Components.ps1` | List frontend components from repo | |
 | `Get-RepoInfo.ps1` | Local repo info (framework) | |
 | `Switch-Space.ps1` | Switch active space | `-Name "My Space"` |
+| `Get-Insights.ps1` | Content quality scan (stale, missing alt, broken URLs, duplicates) | `[-Issue "missing-alt"] [-Model "page"]` |
+| `Get-Assets.ps1` | List assets in the space | `[-Query "hero"] [-Max 5000]` |
+| `Get-AssetUsage.ps1` | Find which entries use an asset URL | `-Url "https://cdn.builder.io/..."` |
+| `Remove-Asset.ps1` | Delete an asset | `-Id "abc123" [-Force]` |
+| `Get-PreviewUrl.ps1` | Resolve preview URL(s) for an entry (executes dynamic editingUrlLogic) | `-Model "page" -EntryId "abc"` |
+| `Get-ModelSchema.ps1` | Inspect a model's fields and types | `-Name "page" [-Json]` |
 
 ### Model Operations
 
@@ -186,3 +192,61 @@ curl -s -X POST http://127.0.0.1:3800/api/ui/view-plugin \
 - The `data.url` field on page-type entries determines the page path for preview
 - Large datasets are paginated -- use `limit` and `offset`
 - Multi-space: all operations use the active space. Switch with `/spaces/active`.
+
+### Insights (content quality audit)
+
+```bash
+# Full scan across all models: stale entries, drafts, images without alt text, missing/duplicate URLs, missing required fields, empty models
+curl -s http://127.0.0.1:3800/api/plugins/builderio/insights
+```
+
+Response shape:
+- `counts`: aggregate counts (total, drafts, stale, missingAlt, missingUrl, duplicateUrl, missingField, emptyModels[])
+- `entries[]`: each entry with `model`, `id`, `name`, `published`, `issues[]` (e.g. `['draft','stale','missing-alt','missing-field:title']`), `imgIssues[]` (paths + URLs of images without alt)
+- `models[]`: per-model rollup
+
+The `/health` endpoint also surfaces top-level `issues` (drafts, stale, missing-alt, empty models) as clickable cards on the Home tab.
+
+### Assets
+
+```bash
+# List all assets in the space (auto-paginated; Builder caps at 100/page internally)
+curl -s "http://127.0.0.1:3800/api/plugins/builderio/assets"
+curl -s "http://127.0.0.1:3800/api/plugins/builderio/assets?query=hero&max=2000"
+
+# Find entries that reference an asset URL (scans all entries across all models)
+curl -s "http://127.0.0.1:3800/api/plugins/builderio/asset-usage?url=https%3A%2F%2Fcdn.builder.io%2F..."
+
+# Delete an asset
+curl -s -X DELETE http://127.0.0.1:3800/api/plugins/builderio/assets/ASSET_ID
+```
+
+Asset fields: `id, name, type, url, bytes, width, height, metadata, lastUsed, createdDate`.
+**Note:** Builder.io does NOT expose alt text on the asset itself - alt text is set per-usage in content (Image blocks or alongside URL fields in entry data). Use `/asset-usage` to find missing alt text per usage, then patch the containing entry.
+
+### Preview URL Resolution
+
+```bash
+# Resolves one URL per locale for a given entry, by executing the model's
+# Advanced Editing URL Logic (editingUrlLogic) server-side in a sandboxed vm.
+# Falls back to examplePageUrl + targeting.urlPath when no script is set.
+curl -s "http://127.0.0.1:3800/api/plugins/builderio/preview-url?model=page&entryId=ABC"
+```
+
+Response: `{ urls: [{locale, url}, ...], hasScript, configuredLocales }`. Works for any space: with/without locales, with/without urlPath targeting.
+
+### Model Schema (full JSON)
+
+```bash
+# Non-archived models with id, name, kind, fields, previewUrl
+curl -s http://127.0.0.1:3800/api/plugins/builderio/models
+
+# Full model definition including all fields, validations, defaults, subFields
+curl -s http://127.0.0.1:3800/api/plugins/builderio/models/MODEL_ID
+```
+
+Use this to understand the exact field types (`text`, `longText`, `richText`, `html`, `number`, `boolean`, `color`, `date`, `file`, `url`, `list`, `object`, `reference`, `uiBlocks`) before creating/updating entries. `fields[].localized: true` means the value is a `@builder.io/core:LocalizedValue` object keyed by locale.
+
+### Locales (for multi-language spaces)
+
+`/health` returns `locales[]` (e.g. `['us-en','qc-fr']`) parsed from `settings.customTargetingAttributes.locale.enum`. An empty array means the space has no locale targeting set up.

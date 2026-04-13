@@ -173,6 +173,7 @@ function httpsJson(urlStr, options, body) {
         catch (_) { resolve({ status: resp.statusCode, data }); }
       });
     });
+    req.setTimeout(20000, () => { req.destroy(new Error('Builder.io request timed out after 20s')); });
     req.on('error', reject);
     if (body) req.write(typeof body === 'string' ? body : JSON.stringify(body));
     req.end();
@@ -201,6 +202,33 @@ async function contentApi(modelPath, privateKey) {
     method: 'GET',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${privateKey}` },
   });
+}
+
+// -- Asset helpers ------------------------------------------------------------
+function findAltForUrl(obj, targetUrl) {
+  // Walk obj; when we find a node containing targetUrl, look for a sibling alt/altText field.
+  let found = undefined;
+  function walk(o) {
+    if (!o || typeof o !== 'object' || found !== undefined) return;
+    if (Array.isArray(o)) { o.forEach(walk); return; }
+    // Builder Image block shape: { component: { name:'Image', options: { image, altText } } }
+    if (o.component && o.component.name === 'Image' && o.component.options) {
+      const opts = o.component.options;
+      if (opts.image === targetUrl) { found = opts.altText || ''; return; }
+    }
+    const keys = Object.keys(o);
+    for (const k of keys) {
+      const v = o[k];
+      if (typeof v === 'string' && v === targetUrl) {
+        const altKey = keys.find(x => /^alt(Text)?$/i.test(x));
+        if (altKey !== undefined) { found = o[altKey] || ''; return; }
+      }
+      if (v && typeof v === 'object') walk(v);
+      if (found !== undefined) return;
+    }
+  }
+  walk(obj);
+  return found;
 }
 
 // -- Preview URL resolution ---------------------------------------------------
@@ -412,6 +440,7 @@ module.exports = function ({ addPrefixRoute, json, readBody }) {
         if (!space) return json(res, { error: 'Space not found.' }, 404);
         all.activeSpace = body.name;
         saveAllCfg(all);
+        if (global.__bioHealthCache) global.__bioHealthCache.clear();
         return json(res, { ok: true, activeSpace: body.name });
       }
 
@@ -485,6 +514,7 @@ module.exports = function ({ addPrefixRoute, json, readBody }) {
         }
         all.spaces[idx].activeEnv = body.env;
         saveAllCfg(all);
+        if (global.__bioHealthCache) global.__bioHealthCache.clear();
         return json(res, { ok: true, activeEnv: body.env, previewUrl: resolvePreviewUrl(all.spaces[idx]) });
       }
 
@@ -603,18 +633,68 @@ module.exports = function ({ addPrefixRoute, json, readBody }) {
         return json(res, { ok: true, status: newStatus });
       }
 
-      // GET /assets?limit=100&offset=0&query=
+      // GET /assets?query=&max=5000  (paginates internally; Builder caps at 100 per page)
       if (subpath === '/assets' && method === 'GET') {
         const cfg = getCfg();
         if (!isConfigured(cfg)) return json(res, { error: 'Not configured' }, 401);
-        const limit = Math.min(parseInt(url.searchParams.get('limit') || '100', 10) || 100, 500);
-        const offset = parseInt(url.searchParams.get('offset') || '0', 10) || 0;
         const search = (url.searchParams.get('query') || '').trim().toLowerCase();
+        const max = Math.min(parseInt(url.searchParams.get('max') || '5000', 10) || 5000, 10000);
         try {
-          const data = await gql(cfg.privateKey, `query($i:QueryAssetsInput){ assets(input:$i) { id name type url bytes width height metadata lastUsed createdDate } }`, { i: { limit, offset } });
-          let assets = data.assets || [];
+          const PAGE = 100;
+          const all = [];
+          let offset = 0;
+          while (all.length < max) {
+            const data = await gql(cfg.privateKey, `query($i:QueryAssetsInput){ assets(input:$i) { id name type url bytes width height metadata lastUsed createdDate } }`, { i: { limit: PAGE, offset } });
+            const batch = data.assets || [];
+            all.push(...batch);
+            if (batch.length < PAGE) break;
+            offset += PAGE;
+          }
+          let assets = all;
           if (search) assets = assets.filter(a => (a.name || '').toLowerCase().includes(search) || (a.url || '').toLowerCase().includes(search));
-          return json(res, { assets, limit, offset });
+          return json(res, { assets, total: all.length });
+        } catch (e) {
+          return json(res, { error: String(e && e.message || e) }, 500);
+        }
+      }
+
+      // GET /asset-usage?url=<url>  -- find which entries reference an asset URL
+      if (subpath === '/asset-usage' && method === 'GET') {
+        const cfg = getCfg();
+        if (!isConfigured(cfg)) return json(res, { error: 'Not configured' }, 401);
+        const targetUrl = (url.searchParams.get('url') || '').trim();
+        if (!targetUrl) return json(res, { error: 'url required' }, 400);
+        try {
+          const modelsData = await gql(cfg.privateKey, '{ models { id name kind archived } }');
+          const models = (modelsData.models || []).filter(m => !m.archived);
+          const usages = [];
+          await Promise.all(models.map(async m => {
+            try {
+              const qp = new URLSearchParams({ apiKey: cfg.publicKey, limit: '200', includeUnpublished: 'true', fields: 'id,name,data,published,lastUpdated' });
+              const r = await contentApi(`${m.name}?${qp}`, cfg.privateKey);
+              for (const e of (r.data.results || [])) {
+                const s = JSON.stringify(e.data || {});
+                if (s.indexOf(targetUrl) !== -1) {
+                  const altFound = findAltForUrl(e.data, targetUrl);
+                  usages.push({ model: m.name, modelKind: m.kind, entryId: e.id, entryName: e.name || e.id, published: e.published, lastUpdated: e.lastUpdated, altText: altFound });
+                }
+              }
+            } catch (_) {}
+          }));
+          return json(res, { usages });
+        } catch (e) {
+          return json(res, { error: String(e && e.message || e) }, 500);
+        }
+      }
+
+      // DELETE /assets/:id
+      const assetDelMatch = subpath.match(/^\/assets\/([^/]+)$/);
+      if (assetDelMatch && method === 'DELETE') {
+        const cfg = getCfg();
+        if (!isConfigured(cfg)) return json(res, { error: 'Not configured' }, 401);
+        try {
+          await gql(cfg.privateKey, 'mutation($id:String!){ deleteAsset(id:$id) }', { id: assetDelMatch[1] });
+          return json(res, { ok: true });
         } catch (e) {
           return json(res, { error: String(e && e.message || e) }, 500);
         }
@@ -693,44 +773,82 @@ module.exports = function ({ addPrefixRoute, json, readBody }) {
         const cfg = getCfg();
         if (!isConfigured(cfg)) return json(res, { error: 'Not configured' }, 401);
 
-        const data = await gql(cfg.privateKey, '{ models { id name kind fields archived } }');
-        const activeModels = (data.models || []).filter(m => !m.archived);
-
-        let totalEntries = 0, totalPub = 0, totalDraft = 0;
-        const modelStats = [];
-        for (const m of activeModels) {
-          const fields = Array.isArray(m.fields) ? m.fields : [];
-          const qp = new URLSearchParams({ apiKey: cfg.publicKey, limit: '100', includeUnpublished: 'true' });
-          const r = await contentApi(`${m.name}?${qp}`, cfg.privateKey);
-          const entries = r.data.results || [];
-          const pub = entries.filter(e => e.published === 'published').length;
-          const draft = entries.length - pub;
-          totalEntries += entries.length; totalPub += pub; totalDraft += draft;
-          modelStats.push({ name: m.name, kind: m.kind, id: m.id, fieldCount: fields.length, total: entries.length, published: pub, drafts: draft, previewUrl: m.previewUrl || '' });
+        const refresh = url.searchParams.get('refresh') === '1';
+        const cacheKey = cfg.publicKey + '|' + (cfg.privateKey || '');
+        if (!global.__bioHealthCache) global.__bioHealthCache = new Map();
+        const cached = global.__bioHealthCache.get(cacheKey);
+        if (!refresh && cached && (Date.now() - cached.ts) < 60000) {
+          return json(res, cached.data);
         }
 
-        // Recent entries across all models
+        const [data, settingsRes] = await Promise.all([
+          gql(cfg.privateKey, '{ models { id name kind fields archived } }'),
+          gql(cfg.privateKey, '{ settings }').catch(() => ({ settings: {} })),
+        ]);
+        const activeModels = (data.models || []).filter(m => !m.archived);
+
+        const STALE_DAYS = 90;
+        const staleThreshold = Date.now() - STALE_DAYS * 86400000;
+        function hasMissingAlt(obj) {
+          if (!obj || typeof obj !== 'object') return false;
+          if (Array.isArray(obj)) return obj.some(hasMissingAlt);
+          if (obj.component && obj.component.name === 'Image' && obj.component.options) {
+            const opts = obj.component.options;
+            if (opts.image && !String(opts.altText || '').trim()) return true;
+          }
+          const keys = Object.keys(obj);
+          for (const k of keys) {
+            const v = obj[k];
+            if (typeof v === 'string' && /^https?:\/\/.+\.(png|jpe?g|webp|gif|svg|avif)(\?|$)/i.test(v)) {
+              const altKey = keys.find(x => /^alt(Text)?$/i.test(x));
+              if (altKey !== undefined && !String(obj[altKey] || '').trim()) return true;
+              if (altKey === undefined && /image|photo|picture|thumbnail|hero|cover/i.test(k)) return true;
+            }
+            if (v && typeof v === 'object' && hasMissingAlt(v)) return true;
+          }
+          return false;
+        }
+
+        let totalEntries = 0, totalPub = 0, totalDraft = 0, totalStale = 0, totalMissingAlt = 0;
+        const modelStats = [];
+        const perModel = await Promise.all(activeModels.map(async m => {
+          const qp = new URLSearchParams({ apiKey: cfg.publicKey, limit: '100', includeUnpublished: 'true' });
+          try {
+            const r = await contentApi(`${m.name}?${qp}`, cfg.privateKey);
+            return { m, entries: r.data.results || [] };
+          } catch (_) {
+            return { m, entries: [] };
+          }
+        }));
+        for (const { m, entries } of perModel) {
+          const fields = Array.isArray(m.fields) ? m.fields : [];
+          const pub = entries.filter(e => e.published === 'published').length;
+          const draft = entries.length - pub;
+          const stale = entries.filter(e => e.published === 'published' && (e.lastUpdated || e.createdDate || 0) < staleThreshold).length;
+          const missingAlt = entries.filter(e => hasMissingAlt(e.data)).length;
+          totalEntries += entries.length; totalPub += pub; totalDraft += draft; totalStale += stale; totalMissingAlt += missingAlt;
+          modelStats.push({ name: m.name, kind: m.kind, id: m.id, fieldCount: fields.length, total: entries.length, published: pub, drafts: draft, stale, missingAlt, previewUrl: m.previewUrl || '' });
+        }
+
+        // Recent entries from the data we already fetched (no extra roundtrips)
         const recent = [];
-        for (const m of activeModels.slice(0, 8)) {
-          const qp = new URLSearchParams({ apiKey: cfg.publicKey, limit: '5', includeUnpublished: 'true' });
-          const r = await contentApi(`${m.name}?${qp}`, cfg.privateKey);
-          (r.data.results || []).forEach(e => { e._modelName = m.name; recent.push(e); });
+        for (const { m, entries } of perModel) {
+          for (const e of entries.slice(0, 5)) { recent.push(Object.assign({}, e, { _modelName: m.name })); }
         }
         recent.sort((a, b) => (b.lastUpdated || 0) - (a.lastUpdated || 0));
 
         const issues = [];
-        if (totalDraft > 20) issues.push({ level: 'warn', message: totalDraft + ' unpublished drafts across all models.' });
+        if (totalDraft > 20) issues.push({ level: 'warn', issue: 'draft', message: totalDraft + ' unpublished drafts across all models.' });
+        if (totalStale > 0) issues.push({ level: 'warn', issue: 'stale', message: totalStale + ' published entr' + (totalStale === 1 ? 'y' : 'ies') + ' not updated in 90+ days.' });
+        if (totalMissingAlt > 0) issues.push({ level: 'warn', issue: 'missing-alt', message: totalMissingAlt + ' entr' + (totalMissingAlt === 1 ? 'y has' : 'ies have') + ' images without alt text.' });
         const emptyModels = modelStats.filter(m => m.total === 0);
-        if (emptyModels.length) issues.push({ level: 'info', message: emptyModels.length + ' empty model(s): ' + emptyModels.map(m => m.name).join(', ') });
+        if (emptyModels.length) issues.push({ level: 'info', issue: 'empty', message: emptyModels.length + ' empty model(s): ' + emptyModels.map(m => m.name).join(', ') });
 
         let locales = [];
-        try {
-          const s = await gql(cfg.privateKey, '{ settings }');
-          const attr = s.settings && s.settings.customTargetingAttributes && s.settings.customTargetingAttributes.locale;
-          if (attr && Array.isArray(attr.enum)) locales = attr.enum.slice();
-        } catch (_) {}
+        const attr = settingsRes && settingsRes.settings && settingsRes.settings.customTargetingAttributes && settingsRes.settings.customTargetingAttributes.locale;
+        if (attr && Array.isArray(attr.enum)) locales = attr.enum.slice();
 
-        return json(res, {
+        const payload = {
           publicKey: cfg.publicKey,
           ...getEnvFields(cfg),
           repoPath: cfg.repoPath || '',
@@ -743,7 +861,9 @@ module.exports = function ({ addPrefixRoute, json, readBody }) {
           recent: recent.slice(0, 10),
           issues,
           locales,
-        });
+        };
+        global.__bioHealthCache.set(cacheKey, { ts: Date.now(), data: payload });
+        return json(res, payload);
       }
 
       // -- Insights (smart dashboard: issue detection across all entries) -------
