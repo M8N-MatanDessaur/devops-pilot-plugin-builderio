@@ -231,6 +231,33 @@ function findAltForUrl(obj, targetUrl) {
   return found;
 }
 
+// Mutates obj: sets alt/altText on every node that references targetUrl.
+// Returns the number of locations updated.
+function setAltForUrl(obj, targetUrl, newAlt) {
+  let count = 0;
+  function walk(o) {
+    if (!o || typeof o !== 'object') return;
+    if (Array.isArray(o)) { o.forEach(walk); return; }
+    if (o.component && o.component.name === 'Image' && o.component.options) {
+      if (o.component.options.image === targetUrl) {
+        o.component.options.altText = newAlt;
+        count++;
+      }
+    }
+    const keys = Object.keys(o);
+    for (const k of keys) {
+      const v = o[k];
+      if (typeof v === 'string' && v === targetUrl) {
+        const altKey = keys.find(x => /^alt(Text)?$/i.test(x));
+        if (altKey !== undefined) { o[altKey] = newAlt; count++; }
+      }
+      if (v && typeof v === 'object') walk(v);
+    }
+  }
+  walk(obj);
+  return count;
+}
+
 // -- Preview URL resolution ---------------------------------------------------
 // Uses the model's Advanced Editing URL Logic (editingUrlLogic) when present,
 // falling back to examplePageUrl + targeting.urlPath + locale heuristics.
@@ -633,26 +660,50 @@ module.exports = function ({ addPrefixRoute, json, readBody }) {
         return json(res, { ok: true, status: newStatus });
       }
 
-      // GET /assets?query=&max=5000  (paginates internally; Builder caps at 100 per page)
+      // GET /assets?query=&limit=60&offset=0&max=5000
+      // When `query` is provided we must scan the whole space (Builder has no server-side name filter),
+      // but we still honor limit/offset on the filtered result so the UI can page through matches.
       if (subpath === '/assets' && method === 'GET') {
         const cfg = getCfg();
         if (!isConfigured(cfg)) return json(res, { error: 'Not configured' }, 401);
         const search = (url.searchParams.get('query') || '').trim().toLowerCase();
+        const limit = Math.min(parseInt(url.searchParams.get('limit') || '60', 10) || 60, 500);
+        const offset = Math.max(parseInt(url.searchParams.get('offset') || '0', 10) || 0, 0);
         const max = Math.min(parseInt(url.searchParams.get('max') || '5000', 10) || 5000, 10000);
         try {
           const PAGE = 100;
+          if (!search) {
+            // Fast path: single page straight from Builder, no full scan.
+            const alignedOffset = Math.floor(offset / PAGE) * PAGE;
+            const skip = offset - alignedOffset;
+            const need = limit + skip;
+            const out = [];
+            let off = alignedOffset;
+            let exhausted = false;
+            while (out.length < need) {
+              const data = await gql(cfg.privateKey, `query($i:QueryAssetsInput){ assets(input:$i) { id name type url bytes width height metadata lastUsed createdDate } }`, { i: { limit: PAGE, offset: off } });
+              const batch = data.assets || [];
+              out.push(...batch);
+              if (batch.length < PAGE) { exhausted = true; break; }
+              off += PAGE;
+            }
+            const page = out.slice(skip, skip + limit);
+            const hasMore = !exhausted || out.length > skip + limit;
+            return json(res, { assets: page, offset, limit, hasMore });
+          }
+          // Search path: scan up to `max`, filter, then page.
           const all = [];
-          let offset = 0;
+          let off = 0;
           while (all.length < max) {
-            const data = await gql(cfg.privateKey, `query($i:QueryAssetsInput){ assets(input:$i) { id name type url bytes width height metadata lastUsed createdDate } }`, { i: { limit: PAGE, offset } });
+            const data = await gql(cfg.privateKey, `query($i:QueryAssetsInput){ assets(input:$i) { id name type url bytes width height metadata lastUsed createdDate } }`, { i: { limit: PAGE, offset: off } });
             const batch = data.assets || [];
             all.push(...batch);
             if (batch.length < PAGE) break;
-            offset += PAGE;
+            off += PAGE;
           }
-          let assets = all;
-          if (search) assets = assets.filter(a => (a.name || '').toLowerCase().includes(search) || (a.url || '').toLowerCase().includes(search));
-          return json(res, { assets, total: all.length });
+          const filtered = all.filter(a => (a.name || '').toLowerCase().includes(search) || (a.url || '').toLowerCase().includes(search));
+          const page = filtered.slice(offset, offset + limit);
+          return json(res, { assets: page, offset, limit, hasMore: offset + limit < filtered.length, totalMatches: filtered.length });
         } catch (e) {
           return json(res, { error: String(e && e.message || e) }, 500);
         }
@@ -682,6 +733,56 @@ module.exports = function ({ addPrefixRoute, json, readBody }) {
             } catch (_) {}
           }));
           return json(res, { usages });
+        } catch (e) {
+          return json(res, { error: String(e && e.message || e) }, 500);
+        }
+      }
+
+      // PATCH /assets/:id  body: { name?, altText?, metadata? }
+      // Best-effort update of asset-level metadata. Builder.io's GraphQL schema for updateAsset
+      // is not fully public; we attempt the common shape and surface errors verbatim so the caller
+      // can fall back to per-entry alt editing.
+      const assetPatchMatch = subpath.match(/^\/assets\/([^/]+)$/);
+      if (assetPatchMatch && method === 'PATCH') {
+        const cfg = getCfg();
+        if (!isConfigured(cfg)) return json(res, { error: 'Not configured' }, 401);
+        const body = await readBody(req);
+        const id = assetPatchMatch[1];
+        const input = {};
+        if (typeof body.name === 'string') input.name = body.name;
+        const meta = Object.assign({}, body.metadata || {});
+        if (typeof body.altText === 'string') meta.altText = body.altText;
+        if (Object.keys(meta).length) input.metadata = meta;
+        try {
+          await gql(cfg.privateKey, 'mutation($id:String!,$input:UpdateAssetInput!){ updateAsset(id:$id,input:$input) { id name metadata } }', { id, input });
+          return json(res, { ok: true });
+        } catch (e) {
+          return json(res, { error: String(e && e.message || e) }, 500);
+        }
+      }
+
+      // PATCH /asset-usage  body: { url, model, entryId, altText }
+      // Updates the alt/altText field wherever `url` appears in the given entry's data.
+      if (subpath === '/asset-usage' && method === 'PATCH') {
+        const cfg = getCfg();
+        if (!isConfigured(cfg)) return json(res, { error: 'Not configured' }, 401);
+        const body = await readBody(req);
+        const { url: assetUrl, model, entryId, altText } = body || {};
+        if (!assetUrl || !model || !entryId || typeof altText !== 'string') {
+          return json(res, { error: 'url, model, entryId, altText required' }, 400);
+        }
+        try {
+          const qp = new URLSearchParams({ apiKey: cfg.publicKey, includeUnpublished: 'true', fields: 'id,data' });
+          const cur = await contentApi(`${model}/${entryId}?${qp}`, cfg.privateKey);
+          if (cur.status >= 300 || !cur.data || !cur.data.data) {
+            return json(res, { error: 'Entry not found' }, 404);
+          }
+          const data = cur.data.data;
+          const count = setAltForUrl(data, assetUrl, altText);
+          if (count === 0) return json(res, { error: 'Asset URL not found in entry' }, 404);
+          const r = await writeApi('PATCH', `${model}/${entryId}`, cfg.privateKey, { data });
+          if (r.status >= 300) return json(res, { error: 'Failed to update entry' }, r.status);
+          return json(res, { ok: true, updated: count });
         } catch (e) {
           return json(res, { error: String(e && e.message || e) }, 500);
         }

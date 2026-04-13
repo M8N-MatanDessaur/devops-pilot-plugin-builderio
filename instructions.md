@@ -67,8 +67,12 @@ powershell.exe -ExecutionPolicy Bypass -NoProfile -Command "./dashboard/plugins/
 | `Get-RepoInfo.ps1` | Local repo info (framework) | |
 | `Switch-Space.ps1` | Switch active space | `-Name "My Space"` |
 | `Get-Insights.ps1` | Content quality scan (stale, missing alt, broken URLs, duplicates) | `[-Issue "missing-alt"] [-Model "page"]` |
-| `Get-Assets.ps1` | List assets in the space | `[-Query "hero"] [-Max 5000]` |
+| `Get-Assets.ps1` | List assets in the space (full scan) | `[-Query "hero"] [-Max 5000]` |
+| `Find-Assets.ps1` | Paginated asset search (fast, one page at a time) | `[-Query "hero"] [-Limit 60] [-Offset 0]` |
 | `Get-AssetUsage.ps1` | Find which entries use an asset URL | `-Url "https://cdn.builder.io/..."` |
+| `Update-Asset.ps1` | Update asset-level alt text or name | `-Id "abc123" [-AltText "..."] [-Name "..."]` |
+| `Set-EntryAlt.ps1` | Set alt text for a specific image usage in an entry | `-Url "<cdn-url>" -Model "page" -EntryId "abc" -AltText "..."` |
+| `Audit-AltText.ps1` | List every image usage with missing alt text | `[-Fix]` |
 | `Remove-Asset.ps1` | Delete an asset | `-Id "abc123" [-Force]` |
 | `Get-PreviewUrl.ps1` | Resolve preview URL(s) for an entry (executes dynamic editingUrlLogic) | `-Model "page" -EntryId "abc"` |
 | `Get-ModelSchema.ps1` | Inspect a model's fields and types | `-Name "page" [-Json]` |
@@ -210,19 +214,30 @@ The `/health` endpoint also surfaces top-level `issues` (drafts, stale, missing-
 ### Assets
 
 ```bash
-# List all assets in the space (auto-paginated; Builder caps at 100/page internally)
-curl -s "http://127.0.0.1:3800/api/plugins/builderio/assets"
-curl -s "http://127.0.0.1:3800/api/plugins/builderio/assets?query=hero&max=2000"
+# Paginated list (default: limit=60, offset=0). Returns { assets, offset, limit, hasMore }.
+curl -s "http://127.0.0.1:3800/api/plugins/builderio/assets?limit=60&offset=0"
+
+# Search by name or URL (returns { assets, totalMatches, hasMore } - paged across the filtered set)
+curl -s "http://127.0.0.1:3800/api/plugins/builderio/assets?query=hero&limit=60&offset=0"
 
 # Find entries that reference an asset URL (scans all entries across all models)
 curl -s "http://127.0.0.1:3800/api/plugins/builderio/asset-usage?url=https%3A%2F%2Fcdn.builder.io%2F..."
+
+# Update asset-level alt text or name (best-effort; calls Builder updateAsset mutation)
+curl -s -X PATCH http://127.0.0.1:3800/api/plugins/builderio/assets/ASSET_ID \
+  -H "Content-Type: application/json" -d '{"altText":"Hero image of mountain"}'
+
+# Set alt text for one specific usage of an asset URL inside an entry (Image block or alt sibling field)
+curl -s -X PATCH http://127.0.0.1:3800/api/plugins/builderio/asset-usage \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://cdn.builder.io/...","model":"page","entryId":"abc","altText":"Mountain at sunrise"}'
 
 # Delete an asset
 curl -s -X DELETE http://127.0.0.1:3800/api/plugins/builderio/assets/ASSET_ID
 ```
 
 Asset fields: `id, name, type, url, bytes, width, height, metadata, lastUsed, createdDate`.
-**Note:** Builder.io does NOT expose alt text on the asset itself - alt text is set per-usage in content (Image blocks or alongside URL fields in entry data). Use `/asset-usage` to find missing alt text per usage, then patch the containing entry.
+**Alt text is two-layered:** (1) `metadata.altText` lives on the asset itself, edited via `PATCH /assets/:id`. (2) Per-page alt text lives inside each entry that uses the asset (Image block `altText` or sibling `alt`/`altText` field next to the URL); edit that with `PATCH /asset-usage`. The page renders the per-usage alt, not the asset metadata.
 
 ### Preview URL Resolution
 
