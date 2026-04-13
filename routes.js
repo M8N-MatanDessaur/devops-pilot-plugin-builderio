@@ -603,6 +603,23 @@ module.exports = function ({ addPrefixRoute, json, readBody }) {
         return json(res, { ok: true, status: newStatus });
       }
 
+      // GET /assets?limit=100&offset=0&query=
+      if (subpath === '/assets' && method === 'GET') {
+        const cfg = getCfg();
+        if (!isConfigured(cfg)) return json(res, { error: 'Not configured' }, 401);
+        const limit = Math.min(parseInt(url.searchParams.get('limit') || '100', 10) || 100, 500);
+        const offset = parseInt(url.searchParams.get('offset') || '0', 10) || 0;
+        const search = (url.searchParams.get('query') || '').trim().toLowerCase();
+        try {
+          const data = await gql(cfg.privateKey, `query($i:QueryAssetsInput){ assets(input:$i) { id name type url bytes width height metadata lastUsed createdDate } }`, { i: { limit, offset } });
+          let assets = data.assets || [];
+          if (search) assets = assets.filter(a => (a.name || '').toLowerCase().includes(search) || (a.url || '').toLowerCase().includes(search));
+          return json(res, { assets, limit, offset });
+        } catch (e) {
+          return json(res, { error: String(e && e.message || e) }, 500);
+        }
+      }
+
       // GET /preview-url?model=X&entryId=Y
       if (subpath === '/preview-url' && method === 'GET') {
         const cfg = getCfg();
