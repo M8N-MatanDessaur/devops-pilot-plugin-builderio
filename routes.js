@@ -206,10 +206,62 @@ async function contentApi(modelPath, privateKey) {
 
 // -- Asset helpers ------------------------------------------------------------
 // Matches alt-field names used across Builder entries and custom models.
-// Covers: alt, altText, altTag, imageAlt, imageAltText, imageAltTag, and
-// snake_case/kebab-case variants (e.g. image_alt, image-alt-text).
-const ALT_KEY_RE = /^(image[_-]?)?alt([_-]?(text|tag))?$/i;
+// Covers plain alt/altText/altTag, any prefixed *Alt/*AltText/*AltTag (e.g.
+// imageAltTag, desktopImageAltTag, mobileImageAltTag, videoAltTag, iconAltTag,
+// heroImageAlt, featuredImageAlt, mediaAltText), and snake_case/kebab-case
+// variants (image_alt, image-alt-text, desktop_image_alt_tag).
+const ALT_KEY_RE = /^([a-z][a-z0-9]*[_-]?)*alt([_-]?(text|tag))?$/i;
 function isAltKey(k) { return typeof k === 'string' && ALT_KEY_RE.test(k); }
+
+// A Builder LocalizedValue looks like: { "@type": "@builder.io/core:LocalizedValue", "Default": "...", "us-en": "...", "qc-fr": "..." }
+function isLocalized(o) {
+  return !!(o && typeof o === 'object' && !Array.isArray(o) && o['@type'] === '@builder.io/core:LocalizedValue');
+}
+// Extract string values from a LocalizedValue (skipping the @type marker).
+function localizedStrings(o) {
+  const out = [];
+  if (!isLocalized(o)) return out;
+  for (const k of Object.keys(o)) {
+    if (k === '@type') continue;
+    const v = o[k];
+    if (typeof v === 'string') out.push(v);
+  }
+  return out;
+}
+// True if the string is a CSS url(...) wrapper -- a CSS background, which has
+// no alt attribute and must NOT be flagged as missing-alt.
+function isCssUrlWrapper(s) {
+  return typeof s === 'string' && /^\s*url\(["']?.+?["']?\)\s*$/i.test(s);
+}
+// Detect whether a value is a renderable <img> source (NOT a CSS background).
+// Matches Builder CDN URLs (no extension) and extension-based URLs.
+function isImageLike(v) {
+  if (typeof v !== 'string') return false;
+  const s = v.trim();
+  if (!s) return false;
+  if (isCssUrlWrapper(s)) return false; // CSS background -- no alt attribute
+  if (/^https?:\/\/cdn\.builder\.io\/api\/v\d+\/(image|file)\//i.test(s)) return true;
+  if (/^https?:\/\/.+\.(png|jpe?g|webp|gif|svg|avif)(\?|#|$)/i.test(s)) return true;
+  return false;
+}
+// Does `parent` have a non-empty alt-like sibling? Accepts both plain strings
+// and LocalizedValue objects (any non-empty locale entry counts).
+function hasNonEmptyAltSibling(parent) {
+  if (!parent || typeof parent !== 'object' || Array.isArray(parent)) return false;
+  for (const k of Object.keys(parent)) {
+    if (!isAltKey(k)) continue;
+    const v = parent[k];
+    if (typeof v === 'string' && v.trim()) return true;
+    if (isLocalized(v) && localizedStrings(v).some(s => s.trim())) return true;
+  }
+  return false;
+}
+// True if the key name suggests an image/media field (used as a fallback when
+// there is no alt sibling at all but the field is clearly an image URL holder).
+// Keys that name renderable <img> sources. Excludes CSS-only properties
+// (backgroundImage, poster) which have no alt attribute on the HTML side.
+const IMAGE_KEY_HEURISTIC = /(^|[A-Z_-])(image|img|media|icon|logo|photo|picture|banner|thumbnail|featuredImage|heroImage|desktopImage|mobileImage)s?$/;
+function looksLikeImageKey(k) { return typeof k === 'string' && IMAGE_KEY_HEURISTIC.test(k); }
 
 function findAltForUrl(obj, targetUrl) {
   // Walk obj; when we find a node containing targetUrl, look for a sibling alt/altText field.
@@ -901,17 +953,19 @@ module.exports = function ({ addPrefixRoute, json, readBody }) {
           if (Array.isArray(obj)) return obj.some(hasMissingAlt);
           if (obj.component && obj.component.name === 'Image' && obj.component.options) {
             const opts = obj.component.options;
-            if (opts.image && !String(opts.altText || '').trim()) return true;
+            if (opts.image && !hasNonEmptyAltSibling(opts)) return true;
           }
           const keys = Object.keys(obj);
           for (const k of keys) {
+            if (k === '@type') continue;
             const v = obj[k];
-            if (typeof v === 'string' && /^https?:\/\/.+\.(png|jpe?g|webp|gif|svg|avif)(\?|$)/i.test(v)) {
-              const altKey = keys.find(isAltKey);
-              if (altKey !== undefined && !String(obj[altKey] || '').trim()) return true;
-              if (altKey === undefined && /image|photo|picture|thumbnail|hero|cover/i.test(k)) return true;
+            if (typeof v === 'string' && isImageLike(v)) {
+              if (looksLikeImageKey(k) && !hasNonEmptyAltSibling(obj)) return true;
             }
-            if (v && typeof v === 'object' && hasMissingAlt(v)) return true;
+            if (isLocalized(v) && localizedStrings(v).some(isImageLike)) {
+              if (looksLikeImageKey(k) && !hasNonEmptyAltSibling(obj)) return true;
+            }
+            if (v && typeof v === 'object' && !isLocalized(v) && hasMissingAlt(v)) return true;
           }
           return false;
         }
@@ -1004,24 +1058,29 @@ module.exports = function ({ addPrefixRoute, json, readBody }) {
           // Builder Image block: { component: { name: 'Image', options: { image, altText, ... } } }
           if (obj.component && obj.component.name === 'Image') {
             const opts = obj.component.options || {};
-            if (opts.image && !String(opts.altText || '').trim()) {
+            if (opts.image && !hasNonEmptyAltSibling(opts)) {
               out.push({ path: path + '.component.options', image: opts.image });
             }
           }
-          // Generic image fields: url alongside empty alt
           const keys = Object.keys(obj);
           for (const k of keys) {
+            if (k === '@type') continue;
             const v = obj[k];
-            if (typeof v === 'string' && /^https?:\/\/.+\.(png|jpe?g|webp|gif|svg|avif)(\?|$)/i.test(v)) {
-              // Look for alt sibling
-              const altKey = keys.find(isAltKey);
-              if (altKey !== undefined && !String(obj[altKey] || '').trim()) {
-                out.push({ path: path + '.' + k, image: v });
-              } else if (altKey === undefined && /image|photo|picture|thumbnail|hero|cover/i.test(k)) {
-                out.push({ path: path + '.' + k, image: v });
+            if (typeof v === 'string' && isImageLike(v) && looksLikeImageKey(k)) {
+              if (!hasNonEmptyAltSibling(obj)) out.push({ path: path + '.' + k, image: v, field: k });
+            }
+            if (isLocalized(v) && looksLikeImageKey(k)) {
+              if (!hasNonEmptyAltSibling(obj)) {
+                for (const lk of Object.keys(v)) {
+                  if (lk === '@type') continue;
+                  const lv = v[lk];
+                  if (typeof lv === 'string' && isImageLike(lv)) {
+                    out.push({ path: path + '.' + k + '.' + lk, image: lv, field: k, locale: lk });
+                  }
+                }
               }
             }
-            if (v && typeof v === 'object') collectImageIssues(entry, v, path + '.' + k, out);
+            if (v && typeof v === 'object' && !isLocalized(v)) collectImageIssues(entry, v, path + '.' + k, out);
           }
         }
 
