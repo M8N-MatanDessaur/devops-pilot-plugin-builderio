@@ -381,11 +381,12 @@ module.exports = function ({ addPrefixRoute, json, readBody }) {
       if (subpath === '/models' && method === 'GET') {
         const cfg = getCfg();
         if (!cfg.privateKey) return json(res, { error: 'Not configured' }, 401);
-        const data = await gql(cfg.privateKey, '{ models { id name kind fields archived } }');
+        const data = await gql(cfg.privateKey, '{ models { id name kind fields archived previewUrl } }');
         const models = (data.models || []).filter(m => !m.archived).map(m => ({
           id: m.id, name: m.name, kind: m.kind,
           fieldCount: Array.isArray(m.fields) ? m.fields.length : 0,
           fields: Array.isArray(m.fields) ? m.fields : [],
+          previewUrl: m.previewUrl || '',
         }));
         return json(res, models);
       }
@@ -408,7 +409,7 @@ module.exports = function ({ addPrefixRoute, json, readBody }) {
 
         if (method === 'GET') {
           const data = await gql(cfg.privateKey, `
-            query($id: String!) { model(id: $id) { id name kind fields } }
+            query($id: String!) { model(id: $id) { id name kind fields previewUrl } }
           `, { id: modelId });
           data.model.fields = Array.isArray(data.model.fields) ? data.model.fields : [];
           return json(res, data.model);
@@ -549,7 +550,7 @@ module.exports = function ({ addPrefixRoute, json, readBody }) {
         const cfg = getCfg();
         if (!isConfigured(cfg)) return json(res, { error: 'Not configured' }, 401);
 
-        const data = await gql(cfg.privateKey, '{ models { id name kind fields archived } }');
+        const data = await gql(cfg.privateKey, '{ models { id name kind fields archived previewUrl } }');
         const activeModels = (data.models || []).filter(m => !m.archived);
 
         let totalEntries = 0, totalPub = 0, totalDraft = 0;
@@ -562,7 +563,7 @@ module.exports = function ({ addPrefixRoute, json, readBody }) {
           const pub = entries.filter(e => e.published === 'published').length;
           const draft = entries.length - pub;
           totalEntries += entries.length; totalPub += pub; totalDraft += draft;
-          modelStats.push({ name: m.name, kind: m.kind, id: m.id, fieldCount: fields.length, total: entries.length, published: pub, drafts: draft });
+          modelStats.push({ name: m.name, kind: m.kind, id: m.id, fieldCount: fields.length, total: entries.length, published: pub, drafts: draft, previewUrl: m.previewUrl || '' });
         }
 
         // Recent entries across all models
@@ -594,11 +595,147 @@ module.exports = function ({ addPrefixRoute, json, readBody }) {
         });
       }
 
+      // -- Insights (smart dashboard: issue detection across all entries) -------
+      if (subpath === '/insights' && method === 'GET') {
+        const cfg = getCfg();
+        if (!isConfigured(cfg)) return json(res, { error: 'Not configured' }, 401);
+
+        const data = await gql(cfg.privateKey, '{ models { id name kind fields archived previewUrl } }');
+        const activeModels = (data.models || []).filter(m => !m.archived);
+
+        // Fetch all entries per model (up to 200 each) in parallel
+        const modelEntries = await Promise.all(activeModels.map(async m => {
+          const qp = new URLSearchParams({ apiKey: cfg.publicKey, limit: '200', includeUnpublished: 'true', fields: 'id,name,data,published,lastUpdated,createdDate' });
+          try {
+            const r = await contentApi(`${m.name}?${qp}`, cfg.privateKey);
+            return { model: m, entries: r.data.results || [] };
+          } catch (_) {
+            return { model: m, entries: [] };
+          }
+        }));
+
+        const STALE_DAYS = 90;
+        const staleThreshold = Date.now() - STALE_DAYS * 86400000;
+
+        function collectImageIssues(entry, obj, path, out) {
+          if (!obj || typeof obj !== 'object') return;
+          if (Array.isArray(obj)) {
+            for (let i = 0; i < obj.length; i++) collectImageIssues(entry, obj[i], path + '[' + i + ']', out);
+            return;
+          }
+          // Builder Image block: { component: { name: 'Image', options: { image, altText, ... } } }
+          if (obj.component && obj.component.name === 'Image') {
+            const opts = obj.component.options || {};
+            if (opts.image && !String(opts.altText || '').trim()) {
+              out.push({ path: path + '.component.options', image: opts.image });
+            }
+          }
+          // Generic image fields: url alongside empty alt
+          const keys = Object.keys(obj);
+          for (const k of keys) {
+            const v = obj[k];
+            if (typeof v === 'string' && /^https?:\/\/.+\.(png|jpe?g|webp|gif|svg|avif)(\?|$)/i.test(v)) {
+              // Look for alt sibling
+              const altKey = keys.find(x => /^alt(Text)?$/i.test(x));
+              if (altKey !== undefined && !String(obj[altKey] || '').trim()) {
+                out.push({ path: path + '.' + k, image: v });
+              } else if (altKey === undefined && /image|photo|picture|thumbnail|hero|cover/i.test(k)) {
+                out.push({ path: path + '.' + k, image: v });
+              }
+            }
+            if (v && typeof v === 'object') collectImageIssues(entry, v, path + '.' + k, out);
+          }
+        }
+
+        const entries = [];
+        const urlMap = {}; // for duplicate url detection
+        let totalImages = 0, imagesMissingAlt = 0;
+
+        for (const { model, entries: list } of modelEntries) {
+          const requiredFields = (Array.isArray(model.fields) ? model.fields : []).filter(f => f.required).map(f => f.name);
+          for (const e of list) {
+            const issues = [];
+            const isDraft = e.published !== 'published';
+            if (isDraft) issues.push('draft');
+            const lu = e.lastUpdated || e.createdDate || 0;
+            if (!isDraft && lu && lu < staleThreshold) issues.push('stale');
+            if (model.kind === 'page') {
+              const url = e.data && e.data.url;
+              if (!url) issues.push('missing-url');
+              else {
+                const k = model.name + '||' + url;
+                if (!urlMap[k]) urlMap[k] = [];
+                urlMap[k].push(e.id);
+              }
+            }
+            for (const rf of requiredFields) {
+              const v = e.data ? e.data[rf] : undefined;
+              if (v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length)) {
+                issues.push('missing-field:' + rf);
+              }
+            }
+            const imgIssues = [];
+            if (e.data) collectImageIssues(e, e.data, 'data', imgIssues);
+            if (imgIssues.length) {
+              issues.push('missing-alt');
+              imagesMissingAlt += imgIssues.length;
+            }
+            // rough total image count (alt or not) via quick scan
+            (function countImgs(o) {
+              if (!o || typeof o !== 'object') return;
+              if (Array.isArray(o)) { o.forEach(countImgs); return; }
+              if (o.component && o.component.name === 'Image' && o.component.options && o.component.options.image) totalImages++;
+              Object.values(o).forEach(v => { if (v && typeof v === 'object') countImgs(v); });
+            })(e.data);
+
+            entries.push({
+              id: e.id,
+              name: e.name || e.id,
+              modelName: model.name,
+              modelKind: model.kind,
+              status: isDraft ? 'draft' : 'published',
+              lastUpdated: lu,
+              issues,
+              imageIssues: imgIssues,
+            });
+          }
+        }
+
+        // Mark duplicate urls
+        Object.keys(urlMap).forEach(k => {
+          if (urlMap[k].length > 1) {
+            urlMap[k].forEach(id => {
+              const e = entries.find(x => x.id === id);
+              if (e && !e.issues.includes('duplicate-url')) e.issues.push('duplicate-url');
+            });
+          }
+        });
+
+        const counts = {
+          total: entries.length,
+          drafts: entries.filter(e => e.issues.includes('draft')).length,
+          stale: entries.filter(e => e.issues.includes('stale')).length,
+          missingUrl: entries.filter(e => e.issues.includes('missing-url')).length,
+          duplicateUrl: entries.filter(e => e.issues.includes('duplicate-url')).length,
+          missingField: entries.filter(e => e.issues.some(i => i.startsWith('missing-field:'))).length,
+          missingAlt: entries.filter(e => e.issues.includes('missing-alt')).length,
+          emptyModels: modelEntries.filter(x => !x.entries.length).map(x => x.model.name),
+          totalImages,
+          imagesMissingAlt,
+        };
+
+        return json(res, {
+          models: activeModels.map(m => ({ name: m.name, kind: m.kind, total: (modelEntries.find(x => x.model.id === m.id) || {}).entries?.length || 0 })),
+          counts,
+          entries,
+        });
+      }
+
       // -- Summary Endpoints (AI-friendly, plain text) --------------------------
       if (subpath === '/summary' && method === 'GET') {
         const cfg = getCfg();
         if (!isConfigured(cfg)) return json(res, { error: 'Not configured' }, 401);
-        const data = await gql(cfg.privateKey, '{ models { id name kind fields archived } }');
+        const data = await gql(cfg.privateKey, '{ models { id name kind fields archived previewUrl } }');
         const activeModels = (data.models || []).filter(m => !m.archived);
         const lines = ['Builder.io Space Summary', '=======================', ''];
         let totalEntries = 0, totalPub = 0, totalDraft = 0;
