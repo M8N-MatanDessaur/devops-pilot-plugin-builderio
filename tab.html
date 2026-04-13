@@ -109,6 +109,9 @@
   .preview-section-header .btn-mini { padding: 3px 8px; font-size: 10px; background: transparent; border: 1px solid var(--surface1); color: var(--subtext0); border-radius: 3px; cursor: pointer; font-family: var(--font-ui); display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
   .preview-section-header .btn-mini svg { width: 11px; height: 11px; }
   .preview-section-header .btn-mini:hover { border-color: var(--accent); color: var(--text); }
+  .preview-section-header select.btn-mini { appearance: none; -webkit-appearance: none; -moz-appearance: none; background-color: var(--mantle); background-image: linear-gradient(45deg, transparent 50%, var(--subtext0) 50%), linear-gradient(135deg, var(--subtext0) 50%, transparent 50%); background-position: calc(100% - 10px) 50%, calc(100% - 6px) 50%; background-size: 4px 4px, 4px 4px; background-repeat: no-repeat; padding-right: 18px; color-scheme: light dark; height: 22px; }
+  .preview-section-header select.btn-mini:focus { outline: none; border-color: var(--accent); }
+  .preview-section-header select.btn-mini option { background: var(--mantle); color: var(--text); }
   .preview-viewport { position: relative; width: 100%; overflow: auto; background: #fff; }
   .preview-viewport iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none; }
   .preview-viewport.loading::before { content: 'Loading preview...'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font: 11px var(--font-ui); color: #888; background: var(--crust); z-index: 2; }
