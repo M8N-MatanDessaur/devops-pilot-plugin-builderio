@@ -706,6 +706,13 @@ module.exports = function ({ addPrefixRoute, json, readBody }) {
         const emptyModels = modelStats.filter(m => m.total === 0);
         if (emptyModels.length) issues.push({ level: 'info', message: emptyModels.length + ' empty model(s): ' + emptyModels.map(m => m.name).join(', ') });
 
+        let locales = [];
+        try {
+          const s = await gql(cfg.privateKey, '{ settings }');
+          const attr = s.settings && s.settings.customTargetingAttributes && s.settings.customTargetingAttributes.locale;
+          if (attr && Array.isArray(attr.enum)) locales = attr.enum.slice();
+        } catch (_) {}
+
         return json(res, {
           publicKey: cfg.publicKey,
           ...getEnvFields(cfg),
@@ -718,6 +725,7 @@ module.exports = function ({ addPrefixRoute, json, readBody }) {
           totalDrafts: totalDraft,
           recent: recent.slice(0, 10),
           issues,
+          locales,
         });
       }
 
