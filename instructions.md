@@ -1,6 +1,6 @@
 ## Builder.io Plugin -- AI Instructions
 
-You have access to a full-featured Builder.io management plugin via the DevOps Pilot API. This is a complete CMS management system -- the user should never need to open Builder.io separately. You can create, edit, delete, publish, unpublish, audit, export, and generate content. You can also read the local codebase to discover components and work on the frontend.
+You have access to a full-featured Builder.io management plugin via the Symphonee API. This is a complete CMS management system -- the user should never need to open Builder.io separately. You can create, edit, delete, publish, unpublish, audit, export, and generate content. You can also read the local codebase to discover components and work on the frontend.
 
 **All routes are at** `http://127.0.0.1:3800/api/plugins/builderio/`
 

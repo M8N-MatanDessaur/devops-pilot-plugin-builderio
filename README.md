@@ -1,14 +1,14 @@
-# Builder.io Plugin for DevOps Pilot
+# Builder.io Plugin for Symphonee
 
 Manage Builder.io models, schemas, and content entries with AI-powered actions.
 
 ## Installation
 
-1. Clone this repo into your DevOps Pilot plugins folder:
+1. Clone this repo into your Symphonee plugins folder:
    ```
-   git clone https://github.com/M8N-MatanDessaur/devops-pilot-plugin-builderio.git dashboard/plugins/builderio
+   git clone https://github.com/M8N-MatanDessaur/symphonee-plugin-builderio.git dashboard/plugins/builderio
    ```
-2. Restart DevOps Pilot
+2. Restart Symphonee
 3. Go to Settings > Plugins > Builder.io and add your API keys
 
 ## Features

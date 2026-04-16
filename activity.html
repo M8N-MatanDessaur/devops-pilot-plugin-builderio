@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<script src="/plugins/sdk/devops-pilot-sdk.js"></script>
+<script src="/plugins/sdk/symphonee-sdk.js"></script>
 <style>
   * { box-sizing: border-box; }
   ::-webkit-scrollbar { width: 7px; height: 7px; }
@@ -124,7 +124,7 @@ async function load() {
 }
 
 function inspect(model, id, name) {
-  DevOpsPilot.askAi(
+  Symphonee.askAi(
     'Fetch this Builder.io content entry:\ncurl -s http://127.0.0.1:3800/api/plugins/builderio/content/' + model + '/' + id + '\n\n' +
     'Show me "' + name + '" from the "' + model + '" model in a readable format. Then ask what I want to do -- edit fields, publish/unpublish, duplicate, or delete it.'
   );

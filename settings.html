@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <title>Builder.io Spaces</title>
-<script src="/plugins/sdk/devops-pilot-sdk.js"></script>
+<script src="/plugins/sdk/symphonee-sdk.js"></script>
 <style>
   * { box-sizing: border-box; }
   body { padding: 0; margin: 0; font-family: var(--font-ui); color: var(--text); background: transparent; }
@@ -123,7 +123,7 @@
     <select id="fRepoPath">
       <option value="">-- None --</option>
     </select>
-    <div class="hint">Select from repos configured in DevOps Pilot. Enables AI to read components and work on the codebase.</div>
+    <div class="hint">Select from repos configured in Symphonee. Enables AI to read components and work on the codebase.</div>
   </div>
   <div class="field">
     <label>Builder.io Dashboard URL <span style="font-weight:400;color:var(--overlay1);">(optional)</span></label>
@@ -255,10 +255,10 @@ async function saveForm() {
   var environments = collectEnvs();
   var repoPath = document.getElementById('fRepoPath').value.trim().replace(/\/+$/, '');
   var dashboardUrl = document.getElementById('fDashboardUrl').value.trim().replace(/\/+$/, '');
-  if (!name) { DevOpsPilot.toast('Name is required.', 'error'); return; }
-  if (!environments.length) { DevOpsPilot.toast('At least one environment is required.', 'error'); return; }
-  if (!environments[0].publicKey) { DevOpsPilot.toast('Each environment needs a public key (first env: missing).', 'error'); return; }
-  if (!editingName && !environments[0].privateKey) { DevOpsPilot.toast('Private key is required on new spaces.', 'error'); return; }
+  if (!name) { Symphonee.toast('Name is required.', 'error'); return; }
+  if (!environments.length) { Symphonee.toast('At least one environment is required.', 'error'); return; }
+  if (!environments[0].publicKey) { Symphonee.toast('Each environment needs a public key (first env: missing).', 'error'); return; }
+  if (!editingName && !environments[0].privateKey) { Symphonee.toast('Private key is required on new spaces.', 'error'); return; }
 
   var endpoint = editingName ? (API + '/spaces/' + encodeURIComponent(editingName)) : (API + '/spaces');
   var method = editingName ? 'PUT' : 'POST';
@@ -267,8 +267,8 @@ async function saveForm() {
     body: JSON.stringify({ name: name, environments: environments, repoPath: repoPath, dashboardUrl: dashboardUrl }),
   });
   var data = await r.json();
-  if (data.error) { DevOpsPilot.toast(data.error, 'error'); return; }
-  DevOpsPilot.toast(editingName ? 'Space updated.' : 'Space added.', 'success');
+  if (data.error) { Symphonee.toast(data.error, 'error'); return; }
+  Symphonee.toast(editingName ? 'Space updated.' : 'Space added.', 'success');
 
   hideForm();
   await loadSpaces();
@@ -277,7 +277,7 @@ async function saveForm() {
 }
 
 function restartApp() {
-  DevOpsPilot.toast('Restarting app...', 'info');
+  Symphonee.toast('Restarting app...', 'info');
   setTimeout(function() {
     fetch('/api/restart-app', { method: 'POST' }).catch(function() {});
   }, 500);
@@ -300,7 +300,7 @@ async function setActive(name) {
   }
   await loadSpaces();
   notifyParent();
-  DevOpsPilot.toast('Switched to ' + name, 'success');
+  Symphonee.toast('Switched to ' + name, 'success');
 }
 
 function editSpace(name) { var s = spaces.find(function(x) { return x.name === name; }); if (s) showForm(s); }
@@ -323,7 +323,7 @@ async function removeSpace(name) {
 async function confirmRemove() {
   if (!pendingRemove) return;
   await fetch(API + '/spaces/' + encodeURIComponent(pendingRemove), { method: 'DELETE' });
-  pendingRemove = null; await loadSpaces(); notifyParent(); DevOpsPilot.toast('Space removed.', 'success');
+  pendingRemove = null; await loadSpaces(); notifyParent(); Symphonee.toast('Space removed.', 'success');
 }
 function cancelRemove() { pendingRemove = null; document.querySelectorAll('.remove-confirm').forEach(function(el) { el.remove(); }); }
 
