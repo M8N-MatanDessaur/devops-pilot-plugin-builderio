@@ -330,7 +330,7 @@ function cancelRemove() { pendingRemove = null; document.querySelectorAll('.remo
 function togglePw(id) { var el = document.getElementById(id); el.type = el.type === 'password' ? 'text' : 'password'; }
 
 function notifyParent() {
-  try { window.parent.postMessage({ __devopsPilot: true, type: 'configChanged', plugin: 'builderio' }, '*'); } catch (_) {}
+  try { window.parent.postMessage({ __symphonee: true, type: 'configChanged', plugin: 'builderio' }, '*'); } catch (_) {}
 }
 
 function resizeFrame() {
